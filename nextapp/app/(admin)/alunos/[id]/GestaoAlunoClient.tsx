@@ -1,0 +1,1360 @@
+'use client'
+
+import { useState } from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import {
+  TrendingUp, Calendar, Scale, AlertCircle, PenLine, Plus, KeyRound, X,
+  ChevronLeft, ChevronDown, ChevronRight, ChevronUp, Trash2, Archive, RotateCcw,
+  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown,
+} from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type SessaoItem = {
+  id: string
+  ordem: number
+  series: number | null
+  repeticoes: string | null
+  carga_kg: number | null
+  periodizacao_semanal: any
+  observacoes: string | null
+  exercicio: { id: string; nome: string; grupo_muscular: string; video_url: string | null } | null
+}
+
+type SessaoTreino = {
+  id: string
+  nome: string
+  tipo: string
+  dia_letra: string | null
+  dia_semana_numero: number | null
+  orientacoes_aluno: string | null
+  observacoes: string | null
+  tipo_aerobico: string | null
+  status: string
+  data: string | null
+  ordem: number | null
+  sessao_itens: SessaoItem[]
+}
+
+type Rotina = {
+  id: string
+  nome: string
+  status: string
+  tipo: string
+  data_inicio: string | null
+  data_fim: string | null
+  objetivo: string | null
+  orientacoes: string | null
+  visivel_antes_de_iniciar: boolean
+  ocultar_ao_vencer: boolean
+  criado_em: string
+  sessoes_treino: SessaoTreino[]
+}
+
+type Exercicio = {
+  id: string
+  nome: string
+  grupo_muscular: string
+  categoria: string | null
+  equipamento: string | null
+  video_url: string | null
+  musculo_primario: string | null
+  musculo_secundario: string | null
+  musculo_terciario: string | null
+  series_secundario: number | null
+  series_terciario: number | null
+}
+
+type SemanaItem = { semana: number; series: string; repeticoes: string; carga_kg: string }
+type ItemForm = {
+  key: string
+  exercicio_id: string
+  nome: string
+  grupo_muscular: string
+  ordem: number
+  periodizacao: SemanaItem[]
+  descanso_seg: string
+  observacoes: string
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const TABS = ['Treinos', 'Dados', 'Ficha Saúde', 'Anotações', 'Feedbacks', 'Score / Evolução']
+const DIA_LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
+const DIAS_SEMANA = [
+  { value: '', label: 'Sem dia' },
+  { value: '1', label: 'Segunda' },
+  { value: '2', label: 'Terça' },
+  { value: '3', label: 'Quarta' },
+  { value: '4', label: 'Quinta' },
+  { value: '5', label: 'Sexta' },
+  { value: '6', label: 'Sábado' },
+  { value: '0', label: 'Domingo' },
+]
+const TIPOS_AEROBICO = ['Longão', 'Sprints / Tiros', 'Fartlek', 'Regenerativo', 'Intervalado', 'Ritmo', 'Progressivo', 'Outro']
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function calcDuracao(inicio: string, fim: string) {
+  if (!inicio || !fim) return ''
+  const d1 = new Date(inicio), d2 = new Date(fim)
+  if (d2 <= d1) return ''
+  const dias = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+  const semanas = Math.ceil(dias / 7)
+  return `${semanas} semanas / ${dias} dias`
+}
+
+function calcNumSemanas(rotina: Rotina | null): number {
+  if (!rotina?.data_inicio || !rotina?.data_fim) return 4
+  const d1 = new Date(rotina.data_inicio)
+  const d2 = new Date(rotina.data_fim)
+  if (d2 <= d1) return 4
+  const dias = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24))
+  return Math.max(1, Math.ceil(dias / 7))
+}
+
+function buildPeriodizacao(n: number): SemanaItem[] {
+  return Array.from({ length: n }, (_, i) => ({ semana: i + 1, series: '3', repeticoes: '10-12', carga_kg: '' }))
+}
+
+const statusLabel = (s: string) => {
+  if (s === 'ativo' || s === 'planejado') return 'Ativa'
+  if (s === 'concluido' || s === 'arquivado') return 'Arquivada'
+  if (s === 'excluido') return 'Excluída'
+  return s
+}
+
+const isRotinaAtiva = (s: string) => s === 'ativo' || s === 'planejado'
+const isRotinaArquivada = (s: string) => s === 'concluido' || s === 'arquivado'
+const isRotinaExcluida = (s: string) => s === 'excluido'
+
+function calcVolume(rotina: Rotina, biblioteca: Exercicio[]) {
+  const byGrupoSemana: Record<string, Record<number, number>> = {}
+  let maxSemanas = 0
+
+  for (const sessao of rotina.sessoes_treino) {
+    for (const item of sessao.sessao_itens) {
+      const exId = item.exercicio?.id
+      const bibEx = exId ? biblioteca.find(e => e.id === exId) : null
+      const musculoPri = bibEx?.musculo_primario || item.exercicio?.grupo_muscular || 'Geral'
+      const musculoSec = bibEx?.musculo_secundario || null
+      const musculoTer = bibEx?.musculo_terciario || null
+      const pesoPri = 1.0
+      const pesoSec = bibEx?.series_secundario ?? 0.5
+      const pesoTer = bibEx?.series_terciario ?? 0.5
+
+      const periodizacao: SemanaItem[] = item.periodizacao_semanal ?? []
+      if (periodizacao.length > maxSemanas) maxSemanas = periodizacao.length
+
+      for (const p of periodizacao) {
+        const s = parseFloat(String(p.series)) || 0
+        if (s === 0) continue
+        if (!byGrupoSemana[musculoPri]) byGrupoSemana[musculoPri] = {}
+        byGrupoSemana[musculoPri][p.semana] = (byGrupoSemana[musculoPri][p.semana] || 0) + s * pesoPri
+        if (musculoSec) {
+          if (!byGrupoSemana[musculoSec]) byGrupoSemana[musculoSec] = {}
+          byGrupoSemana[musculoSec][p.semana] = (byGrupoSemana[musculoSec][p.semana] || 0) + s * pesoSec
+        }
+        if (musculoTer) {
+          if (!byGrupoSemana[musculoTer]) byGrupoSemana[musculoTer] = {}
+          byGrupoSemana[musculoTer][p.semana] = (byGrupoSemana[musculoTer][p.semana] || 0) + s * pesoTer
+        }
+      }
+    }
+  }
+
+  const grupos = Object.keys(byGrupoSemana).sort()
+  const semanas = maxSemanas > 0 ? Array.from({ length: maxSemanas }, (_, i) => i + 1) : []
+  return { byGrupoSemana, grupos, semanas }
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export function GestaoAlunoClient({
+  aluno,
+  ciclos,
+  exerciciosBiblioteca,
+  feedbacks_semanais,
+  pendencias,
+  anotacoes,
+}: {
+  aluno: any
+  ciclos: Rotina[]
+  exerciciosBiblioteca: Exercicio[]
+  feedbacks_semanais: any[]
+  pendencias: any[]
+  anotacoes: any[]
+}) {
+  const supabase = createClient()
+  const router = useRouter()
+
+  // ── Global
+  const [tab, setTab] = useState(0)
+
+  // ── Treinos tab
+  const [ciclosList, setCiclosList] = useState<Rotina[]>(ciclos)
+  const [rotinaView, setRotinaView] = useState<'ativa' | 'arquivada' | 'excluida'>('ativa')
+  const [selectedRotina, setSelectedRotina] = useState<Rotina | null>(null)
+  const [rotinaSubTab, setRotinaSubTab] = useState<0 | 1>(1) // 0=Adicionar, 1=Treinos
+  const [showVolume, setShowVolume] = useState(false)
+  const [showNovaRotina, setShowNovaRotina] = useState(false)
+  const [novaRotina, setNovaRotina] = useState({
+    nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '',
+    tipo: 'musculacao', visivel_antes_de_iniciar: true, ocultar_ao_vencer: false,
+  })
+  const [savingRotina, setSavingRotina] = useState(false)
+
+  // ── Novo dia de treino (inside selected rotina)
+  const [novaDia, setNovaDia] = useState({
+    nome: '', dia_letra: 'A', dia_semana_numero: '', tipo: 'musculacao',
+    orientacoes_aluno: '', descricao_aerobico: '', tipo_aerobico: '',
+  })
+  const [sessaoItens, setSessaoItens] = useState<ItemForm[]>([])
+  const [numSemanas, setNumSemanas] = useState(4)
+  const [searchEx, setSearchEx] = useState('')
+  const [grupoFilter, setGrupoFilter] = useState('')
+  const [savingDia, setSavingDia] = useState(false)
+  const [reordering, setReordering] = useState(false)
+
+  // ── Anotações
+  const [novaNota, setNovaNota] = useState('')
+  const [savingNota, setSavingNota] = useState(false)
+  const [notaError, setNotaError] = useState('')
+  const [anotacoesList, setAnotacoesList] = useState(anotacoes)
+
+  // ── Password reset
+  const [showResetModal, setShowResetModal] = useState(false)
+  const [novaSenha, setNovaSenha] = useState('')
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetMsg, setResetMsg] = useState('')
+
+  // ── Aluno status
+  const [alunoStatus, setAlunoStatus] = useState<string>(aluno.status ?? 'ativo')
+  const [statusLoading, setStatusLoading] = useState(false)
+
+  // ── Derived
+  const nome = aluno.usuario?.nome ?? 'Aluno'
+  const initials = nome.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()
+  const score = aluno.score
+  const badges = aluno.aluno_badges ?? []
+  const aderencia = score?.aderencia_mes ?? 0
+  const grupos = [...new Set(exerciciosBiblioteca.map(e => e.grupo_muscular).filter(Boolean))]
+
+  // ─── Functions ─────────────────────────────────────────────────────────────
+
+  function openRotina(rotina: Rotina, subTab: 0 | 1 = 1) {
+    setSelectedRotina(rotina)
+    setRotinaSubTab(subTab)
+    setNumSemanas(calcNumSemanas(rotina))
+    setShowVolume(false)
+    setSessaoItens([])
+    setNovaDia({ nome: '', dia_letra: 'A', dia_semana_numero: '', tipo: 'musculacao', orientacoes_aluno: '', descricao_aerobico: '', tipo_aerobico: '' })
+  }
+
+  async function createRotina() {
+    if (!novaRotina.nome.trim()) return
+    setSavingRotina(true)
+    const { data, error } = await supabase.from('ciclos').insert({
+      aluno_id: aluno.id,
+      nome: novaRotina.nome,
+      objetivo: novaRotina.objetivo || null,
+      orientacoes: novaRotina.orientacoes || null,
+      data_inicio: novaRotina.data_inicio || null,
+      data_fim: novaRotina.data_fim || null,
+      tipo: novaRotina.tipo,
+      visivel_antes_de_iniciar: novaRotina.visivel_antes_de_iniciar,
+      ocultar_ao_vencer: novaRotina.ocultar_ao_vencer,
+      status: 'ativo',
+    }).select('*, sessoes_treino(*, sessao_itens(*))').single()
+    if (!error && data) {
+      setCiclosList(prev => [data as unknown as Rotina, ...prev])
+      setShowNovaRotina(false)
+      setNovaRotina({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '', tipo: 'musculacao', visivel_antes_de_iniciar: true, ocultar_ao_vencer: false })
+    }
+    setSavingRotina(false)
+  }
+
+  async function arquivarRotina(id: string) {
+    await supabase.from('ciclos').update({ status: 'arquivado' }).eq('id', id)
+    setCiclosList(prev => prev.map(c => c.id === id ? { ...c, status: 'arquivado' } : c))
+    if (selectedRotina?.id === id) setSelectedRotina(null)
+  }
+
+  async function excluirRotina(id: string) {
+    if (!confirm('Mover para excluídos? Você poderá restaurar depois.')) return
+    await supabase.from('ciclos').update({ status: 'excluido' }).eq('id', id)
+    setCiclosList(prev => prev.map(c => c.id === id ? { ...c, status: 'excluido' } : c))
+    if (selectedRotina?.id === id) setSelectedRotina(null)
+  }
+
+  async function restaurarRotina(id: string) {
+    await supabase.from('ciclos').update({ status: 'ativo' }).eq('id', id)
+    setCiclosList(prev => prev.map(c => c.id === id ? { ...c, status: 'ativo' } : c))
+  }
+
+  function addExercicio(ex: Exercicio) {
+    if (sessaoItens.find(i => i.exercicio_id === ex.id)) return
+    setSessaoItens(prev => [...prev, {
+      key: crypto.randomUUID(),
+      exercicio_id: ex.id,
+      nome: ex.nome,
+      grupo_muscular: ex.grupo_muscular,
+      ordem: prev.length + 1,
+      periodizacao: buildPeriodizacao(numSemanas),
+      descanso_seg: '60',
+      observacoes: '',
+    }])
+    setSearchEx('')
+  }
+
+  function removeItem(key: string) {
+    setSessaoItens(prev => prev.filter(i => i.key !== key))
+  }
+
+  function updateItemField(key: string, field: 'observacoes' | 'descanso_seg', value: string) {
+    setSessaoItens(prev => prev.map(i => i.key !== key ? i : { ...i, [field]: value }))
+  }
+
+  function updatePeriod(key: string, semana: number, field: keyof SemanaItem, value: string) {
+    setSessaoItens(prev => prev.map(i => i.key !== key ? i : {
+      ...i,
+      periodizacao: i.periodizacao.map(p => p.semana === semana ? { ...p, [field]: value } : p),
+    }))
+  }
+
+  function updateNumSemanas(n: number) {
+    setNumSemanas(n)
+    setSessaoItens(prev => prev.map(i => ({
+      ...i,
+      periodizacao: n > i.periodizacao.length
+        ? [...i.periodizacao, ...buildPeriodizacao(n - i.periodizacao.length).map((p, j) => ({ ...p, semana: i.periodizacao.length + j + 1 }))]
+        : i.periodizacao.slice(0, n),
+    })))
+  }
+
+  async function moverSessao(sessaoId: string, direcao: 'up' | 'down') {
+    if (!selectedRotina || reordering) return
+    setReordering(true)
+    const sorted = [...selectedRotina.sessoes_treino].sort((a, b) => (a.ordem ?? 99) - (b.ordem ?? 99))
+    const idx = sorted.findIndex(s => s.id === sessaoId)
+    const swapIdx = direcao === 'up' ? idx - 1 : idx + 1
+    if (idx < 0 || swapIdx < 0 || swapIdx >= sorted.length) { setReordering(false); return }
+
+    const newSorted = [...sorted]
+    ;[newSorted[idx], newSorted[swapIdx]] = [newSorted[swapIdx], newSorted[idx]]
+
+    const updates = newSorted.map((s, i) => ({ id: s.id, ordem: i, dia_letra: DIA_LETRAS[i] ?? null }))
+    await Promise.all(updates.map(u =>
+      supabase.from('sessoes_treino').update({ ordem: u.ordem, dia_letra: u.dia_letra }).eq('id', u.id)
+    ))
+
+    const updatedSessoes = updates.map(u => {
+      const orig = sorted.find(s => s.id === u.id)!
+      return { ...orig, ordem: u.ordem, dia_letra: u.dia_letra }
+    })
+    const updated = { ...selectedRotina, sessoes_treino: updatedSessoes }
+    setSelectedRotina(updated)
+    setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updated : c))
+    setReordering(false)
+  }
+
+  async function createSessaoDia() {
+    if (!selectedRotina) return
+    setSavingDia(true)
+    const nomeSessao = novaDia.nome || `Treino ${novaDia.dia_letra}`
+    const nextOrdem = selectedRotina.sessoes_treino.length
+
+    const { data: sessao, error } = await supabase.from('sessoes_treino').insert({
+      aluno_id: aluno.id,
+      ciclo_id: selectedRotina.id,
+      nome: nomeSessao,
+      tipo: novaDia.tipo,
+      dia_letra: novaDia.dia_letra,
+      dia_semana_numero: novaDia.dia_semana_numero ? parseInt(novaDia.dia_semana_numero) : null,
+      orientacoes_aluno: novaDia.orientacoes_aluno || null,
+      observacoes: novaDia.tipo === 'aerobico' ? novaDia.descricao_aerobico || null : null,
+      tipo_aerobico: novaDia.tipo === 'aerobico' ? novaDia.tipo_aerobico || null : null,
+      status: 'pendente',
+      ordem: nextOrdem,
+    }).select('*, sessao_itens(*)').single()
+
+    if (!error && sessao) {
+      if (sessaoItens.length > 0 && novaDia.tipo !== 'aerobico') {
+        await supabase.from('sessao_itens').insert(sessaoItens.map((it, idx) => ({
+          sessao_id: sessao.id,
+          exercicio_id: it.exercicio_id,
+          ordem: idx + 1,
+          series: parseInt(it.periodizacao[0]?.series) || null,
+          repeticoes: it.periodizacao[0]?.repeticoes || null,
+          carga_kg: parseFloat(it.periodizacao[0]?.carga_kg) || null,
+          descanso_seg: parseInt(it.descanso_seg) || null,
+          observacoes: it.observacoes || null,
+          periodizacao_semanal: it.periodizacao,
+        })))
+      }
+      // Refresh selected rotina from DB
+      const { data: updated } = await supabase
+        .from('ciclos')
+        .select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+        .eq('id', selectedRotina.id)
+        .single()
+      if (updated) {
+        const updatedRotina = updated as unknown as Rotina
+        setSelectedRotina(updatedRotina)
+        setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updatedRotina : c))
+      }
+      setNovaDia({ nome: '', dia_letra: 'A', dia_semana_numero: '', tipo: 'musculacao', orientacoes_aluno: '', descricao_aerobico: '', tipo_aerobico: '' })
+      setSessaoItens([])
+      setSearchEx('')
+      setRotinaSubTab(1)
+    }
+    setSavingDia(false)
+  }
+
+  async function saveNota() {
+    if (!novaNota.trim()) return
+    setSavingNota(true)
+    setNotaError('')
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { data: usuario } = await supabase.from('usuarios').select('id, nome').eq('auth_id', user!.id).single()
+      const { data: nova, error } = await supabase.from('anotacoes').insert({
+        aluno_id: aluno.id,
+        autor_id: usuario!.id,
+        texto: novaNota,
+        tipo: 'geral',
+      }).select('*, autor:usuarios(nome)').single()
+      if (error) throw error
+      setAnotacoesList((prev: any[]) => [nova, ...prev])
+      setNovaNota('')
+    } catch (e: any) {
+      setNotaError(e.message ?? 'Erro ao salvar')
+    } finally {
+      setSavingNota(false)
+    }
+  }
+
+  async function deleteNota(id: string) {
+    if (!confirm('Excluir esta anotação?')) return
+    const { error } = await supabase.from('anotacoes').delete().eq('id', id)
+    if (!error) setAnotacoesList((prev: any[]) => prev.filter((a: any) => a.id !== id))
+  }
+
+  async function resetSenha() {
+    if (!novaSenha || novaSenha.length < 6) { setResetMsg('Mínimo 6 caracteres.'); return }
+    setResetLoading(true)
+    setResetMsg('')
+    const res = await fetch('/api/alunos/reset-senha', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auth_id: aluno.usuario?.auth_id, nova_senha: novaSenha }),
+    })
+    const json = await res.json()
+    setResetLoading(false)
+    if (!res.ok) { setResetMsg(json.error ?? 'Erro ao redefinir'); return }
+    setResetMsg('Senha redefinida com sucesso!')
+    setNovaSenha('')
+  }
+
+  async function inativarAluno() {
+    if (!confirm(`Inativar ${nome}? O aluno não poderá mais acessar o app.`)) return
+    setStatusLoading(true)
+    await supabase.from('alunos').update({ status: 'inativo' }).eq('id', aluno.id)
+    setAlunoStatus('inativo')
+    setStatusLoading(false)
+  }
+
+  async function ativarAluno() {
+    setStatusLoading(true)
+    await supabase.from('alunos').update({ status: 'ativo' }).eq('id', aluno.id)
+    setAlunoStatus('ativo')
+    setStatusLoading(false)
+  }
+
+  async function excluirAluno() {
+    if (!confirm(`EXCLUIR ${nome} PERMANENTEMENTE?\n\nEsta ação é IRREVERSÍVEL e remove todos os dados do aluno.`)) return
+    const res = await fetch(`/api/alunos/${aluno.id}`, { method: 'DELETE' })
+    if (res.ok) router.push('/alunos')
+    else alert('Erro ao excluir aluno. Tente novamente.')
+  }
+
+  // ─── Render helpers ────────────────────────────────────────────────────────
+
+  const rotinasFiltradas = ciclosList.filter(c => {
+    if (rotinaView === 'ativa') return isRotinaAtiva(c.status)
+    if (rotinaView === 'arquivada') return isRotinaArquivada(c.status)
+    return isRotinaExcluida(c.status)
+  })
+
+  const exFiltrados = exerciciosBiblioteca.filter(e =>
+    (!grupoFilter || e.grupo_muscular === grupoFilter) &&
+    (!searchEx || e.nome.toLowerCase().includes(searchEx.toLowerCase()))
+  )
+
+  // Next available letter suggestion
+  const nextLetra = DIA_LETRAS[selectedRotina?.sessoes_treino.length ?? 0] ?? 'A'
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div>
+      {/* Hero */}
+      <div className="bg-white rounded-2xl shadow-card p-6 mb-6">
+        <div className="flex items-start gap-6">
+          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-primary-dark flex items-center justify-center text-white text-2xl font-bold flex-shrink-0">
+            {initials}
+          </div>
+          <div className="flex-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-2xl font-extrabold text-secondary">{nome}</h2>
+              {aluno.plano_contratado && <span className="badge-baixa">{aluno.plano_contratado}</span>}
+              {pendencias.length > 0 && <span className="badge-urgente">{pendencias.length} pendências</span>}
+              {alunoStatus === 'inativo' && (
+                <span className="text-xs font-semibold px-2 py-1 rounded-full bg-gray-100 text-gray-500">Inativo</span>
+              )}
+            </div>
+            <p className="text-sm text-outline mt-1">
+              {aluno.academia?.nome && `${aluno.academia.nome} · `}
+              Início: {aluno.data_inicio ? new Date(aluno.data_inicio).toLocaleDateString('pt-BR') : '–'}
+            </p>
+            {aluno.objetivo && <p className="text-sm text-secondary mt-1 font-medium">Objetivo: {aluno.objetivo}</p>}
+          </div>
+          <div className="hidden md:flex flex-col items-end gap-2">
+            {aluno.data_renovacao && (
+              <div className="flex items-center gap-1 text-xs text-outline">
+                <Calendar size={12} />
+                Renovação: {new Date(aluno.data_renovacao).toLocaleDateString('pt-BR')}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+          <div className="bg-background rounded-xl p-4 text-center">
+            <p className="text-2xl font-extrabold text-primary-dark">{aderencia.toFixed(0)}%</p>
+            <p className="text-xs text-outline mt-0.5">Aderência Mês</p>
+          </div>
+          <div className="bg-background rounded-xl p-4 text-center">
+            <p className="text-2xl font-extrabold text-secondary">{score?.sequencia_atual ?? 0}</p>
+            <p className="text-xs text-outline mt-0.5">Semanas seguidas</p>
+          </div>
+          <div className="bg-background rounded-xl p-4 text-center">
+            <p className="text-2xl font-extrabold text-secondary">
+              {ciclosList.reduce((acc, c) => acc + c.sessoes_treino.filter(s => s.status === 'realizado').length, 0)}
+            </p>
+            <p className="text-xs text-outline mt-0.5">Treinos realizados</p>
+          </div>
+          <div className="bg-background rounded-xl p-4 text-center">
+            <p className="text-2xl font-extrabold text-secondary">{score?.pontos_total ?? 0}</p>
+            <p className="text-xs text-outline mt-0.5">Pontos totais</p>
+          </div>
+        </div>
+
+        {badges.length > 0 && (
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            {badges.map((ab: any) => (
+              <span key={ab.badge.id} title={ab.badge.descricao} className="flex items-center gap-1 px-2 py-1 bg-yellow-50 border border-yellow-200 text-yellow-700 text-xs font-semibold rounded-full">
+                {ab.badge.icone} {ab.badge.nome}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white rounded-xl shadow-card p-1 mb-6 overflow-x-auto">
+        {TABS.map((t, i) => (
+          <button
+            key={i}
+            onClick={() => setTab(i)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-all ${tab === i ? 'bg-primary-dark text-white' : 'text-secondary hover:bg-gray-100'}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* ── TAB 0: Treinos ─────────────────────────────────────────────────── */}
+      {tab === 0 && (
+        <div>
+          {!selectedRotina ? (
+            // ── Rotina list view
+            <div>
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <div className="flex gap-2">
+                  {(['ativa', 'arquivada', 'excluida'] as const).map(v => (
+                    <button
+                      key={v}
+                      onClick={() => setRotinaView(v)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${rotinaView === v ? 'bg-primary text-white' : 'bg-white border border-outline-variant text-secondary hover:bg-gray-50'}`}
+                    >
+                      {v === 'ativa' ? 'Ativas' : v === 'arquivada' ? 'Arquivadas' : 'Excluídas'}
+                      <span className="ml-1.5 text-xs opacity-70">
+                        ({ciclosList.filter(c => v === 'ativa' ? isRotinaAtiva(c.status) : v === 'arquivada' ? isRotinaArquivada(c.status) : isRotinaExcluida(c.status)).length})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setShowNovaRotina(true)} className="btn-primary text-sm px-4 py-2">
+                  <Plus size={16} /> Criar Rotina
+                </button>
+              </div>
+
+              {/* Create rotina form */}
+              {showNovaRotina && (
+                <div className="card mb-4 border-2 border-primary">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-extrabold text-secondary">Nova Rotina de Treino</h3>
+                    <button onClick={() => setShowNovaRotina(false)} className="text-outline hover:text-secondary"><X size={18} /></button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="sm:col-span-2">
+                      <label className="label">Nome *</label>
+                      <input className="input" placeholder="Ex: Hipertrofia Fase 1" value={novaRotina.nome} onChange={e => setNovaRotina(p => ({ ...p, nome: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Objetivo</label>
+                      <input className="input" placeholder="Ex: Ganho de massa" value={novaRotina.objetivo} onChange={e => setNovaRotina(p => ({ ...p, objetivo: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Tipo</label>
+                      <select className="input" value={novaRotina.tipo} onChange={e => setNovaRotina(p => ({ ...p, tipo: e.target.value }))}>
+                        <option value="musculacao">Musculação</option>
+                        <option value="aerobico">Aeróbico</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Data de início</label>
+                      <input type="date" className="input" value={novaRotina.data_inicio} onChange={e => setNovaRotina(p => ({ ...p, data_inicio: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">
+                        Data de término
+                        {novaRotina.data_inicio && novaRotina.data_fim && (
+                          <span className="ml-2 text-primary font-semibold">{calcDuracao(novaRotina.data_inicio, novaRotina.data_fim)}</span>
+                        )}
+                      </label>
+                      <input type="date" className="input" value={novaRotina.data_fim} min={novaRotina.data_inicio || undefined} onChange={e => setNovaRotina(p => ({ ...p, data_fim: e.target.value }))} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="label">Orientações para o aluno</label>
+                      <textarea className="input min-h-[80px]" placeholder="Instruções visíveis ao aluno..." value={novaRotina.orientacoes} onChange={e => setNovaRotina(p => ({ ...p, orientacoes: e.target.value }))} />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" id="visivel" className="w-4 h-4" checked={novaRotina.visivel_antes_de_iniciar} onChange={e => setNovaRotina(p => ({ ...p, visivel_antes_de_iniciar: e.target.checked }))} />
+                      <label htmlFor="visivel" className="text-sm text-secondary cursor-pointer">Aluno pode ver antes de iniciar</label>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" id="ocultar" className="w-4 h-4" checked={novaRotina.ocultar_ao_vencer} onChange={e => setNovaRotina(p => ({ ...p, ocultar_ao_vencer: e.target.checked }))} />
+                      <label htmlFor="ocultar" className="text-sm text-secondary cursor-pointer">Ocultar do aluno após o término</label>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-4">
+                    <button onClick={createRotina} disabled={savingRotina || !novaRotina.nome.trim()} className="btn-primary text-sm px-6">
+                      {savingRotina ? 'Salvando...' : 'Criar Rotina'}
+                    </button>
+                    <button onClick={() => setShowNovaRotina(false)} className="btn-ghost text-sm">Cancelar</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Rotina cards */}
+              <div className="space-y-3">
+                {rotinasFiltradas.map(rotina => (
+                  <div key={rotina.id} className="card hover:shadow-card-hover transition-all">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 cursor-pointer" onClick={() => openRotina(rotina)}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${rotina.tipo === 'aerobico' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                            {rotina.tipo === 'aerobico' ? 'Aeróbico' : 'Musculação'}
+                          </span>
+                          <h4 className="font-bold text-secondary">{rotina.nome}</h4>
+                        </div>
+                        <p className="text-xs text-outline mt-1">
+                          {rotina.data_inicio && rotina.data_fim
+                            ? `${new Date(rotina.data_inicio + 'T00:00').toLocaleDateString('pt-BR')} → ${new Date(rotina.data_fim + 'T00:00').toLocaleDateString('pt-BR')} · ${calcDuracao(rotina.data_inicio, rotina.data_fim)}`
+                            : 'Sem datas definidas'}
+                          {' · '}{rotina.sessoes_treino.length} treino{rotina.sessoes_treino.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {rotinaView === 'ativa' && (
+                          <>
+                            <button onClick={() => openRotina(rotina)} title="Abrir" className="p-1.5 rounded text-outline hover:text-primary hover:bg-gray-100 transition-colors"><Edit2 size={14} /></button>
+                            <button onClick={() => arquivarRotina(rotina.id)} title="Arquivar" className="p-1.5 rounded text-outline hover:text-orange-500 hover:bg-orange-50 transition-colors"><Archive size={14} /></button>
+                            <button onClick={() => excluirRotina(rotina.id)} title="Excluir" className="p-1.5 rounded text-outline hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={14} /></button>
+                          </>
+                        )}
+                        {(rotinaView === 'arquivada' || rotinaView === 'excluida') && (
+                          <button onClick={() => restaurarRotina(rotina.id)} title="Restaurar" className="p-1.5 rounded text-outline hover:text-green-600 hover:bg-green-50 transition-colors">
+                            <RotateCcw size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {rotinasFiltradas.length === 0 && (
+                  <div className="text-center py-16 text-outline">
+                    <Dumbbell size={48} className="mx-auto mb-3 opacity-30" />
+                    <p className="font-semibold">Nenhuma rotina {rotinaView === 'arquivada' ? 'arquivada' : rotinaView === 'excluida' ? 'excluída' : 'ativa'}</p>
+                    {rotinaView === 'ativa' && <p className="text-sm mt-1">Clique em "Criar Rotina" para começar</p>}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            // ── Rotina detail view
+            <div>
+              <button onClick={() => setSelectedRotina(null)} className="flex items-center gap-1 text-sm text-outline hover:text-secondary mb-4 transition-colors">
+                <ChevronLeft size={16} /> Voltar às rotinas
+              </button>
+
+              {/* Rotina info card */}
+              <div className="card mb-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedRotina.tipo === 'aerobico' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                        {selectedRotina.tipo === 'aerobico' ? 'Aeróbico' : 'Musculação'}
+                      </span>
+                      <h3 className="font-extrabold text-secondary text-lg">{selectedRotina.nome}</h3>
+                    </div>
+                    {selectedRotina.objetivo && <p className="text-sm text-secondary mt-1">Objetivo: {selectedRotina.objetivo}</p>}
+                    {selectedRotina.data_inicio && selectedRotina.data_fim && (
+                      <p className="text-xs text-outline mt-1">
+                        {new Date(selectedRotina.data_inicio + 'T00:00').toLocaleDateString('pt-BR')} → {new Date(selectedRotina.data_fim + 'T00:00').toLocaleDateString('pt-BR')}
+                        {' · '}{calcDuracao(selectedRotina.data_inicio, selectedRotina.data_fim)}
+                        {' · '}<span className="font-semibold text-primary">{numSemanas} semanas</span>
+                      </p>
+                    )}
+                    {selectedRotina.orientacoes && (
+                      <p className="text-xs text-outline mt-1 italic">"{selectedRotina.orientacoes}"</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Volume report (collapsible) */}
+              {selectedRotina.tipo !== 'aerobico' && (() => {
+                const { byGrupoSemana, grupos, semanas } = calcVolume(selectedRotina, exerciciosBiblioteca)
+                if (grupos.length === 0) return null
+                return (
+                  <div className="card mb-4 border border-primary/20">
+                    <button
+                      onClick={() => setShowVolume(v => !v)}
+                      className="w-full flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <BarChart3 size={16} className="text-primary" />
+                        <span className="font-bold text-secondary text-sm">Volume por Grupo Muscular</span>
+                      </div>
+                      {showVolume ? <ChevronUp size={16} className="text-outline" /> : <ChevronDown size={16} className="text-outline" />}
+                    </button>
+                    {showVolume && (
+                      <div className="mt-4 overflow-x-auto">
+                        <table className="text-xs w-full border-collapse">
+                          <thead>
+                            <tr className="border-b border-outline-variant">
+                              <th className="text-left py-2 pr-4 text-outline font-semibold">Músculo</th>
+                              {semanas.map(s => <th key={s} className="px-3 py-2 text-center text-outline font-semibold">S{s}</th>)}
+                              <th className="px-3 py-2 text-center text-outline font-semibold">Média</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {grupos.map(g => {
+                              const vals = semanas.map(s => byGrupoSemana[g]?.[s] ?? 0)
+                              const avg = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0
+                              const maxVal = Math.max(...vals, 1)
+                              return (
+                                <tr key={g} className="border-b border-outline-variant last:border-0">
+                                  <td className="py-2 pr-4 font-semibold text-secondary">{g}</td>
+                                  {vals.map((v, i) => (
+                                    <td key={i} className="px-3 py-2 text-center">
+                                      <div className="flex flex-col items-center gap-1">
+                                        <div
+                                          className="w-6 rounded-sm bg-primary/20"
+                                          style={{ height: `${Math.max(4, (v / maxVal) * 24)}px`, backgroundColor: v > 0 ? `rgba(100,161,238,${0.3 + (v / maxVal) * 0.7})` : undefined }}
+                                        />
+                                        <span className={`font-medium ${v === 0 ? 'text-outline' : 'text-secondary'}`}>
+                                          {v > 0 ? v.toFixed(1) : '–'}
+                                        </span>
+                                      </div>
+                                    </td>
+                                  ))}
+                                  <td className="px-3 py-2 text-center font-bold text-primary">{avg > 0 ? avg.toFixed(1) : '–'}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                        <p className="text-[10px] text-outline mt-2">Séries por grupo muscular por semana (primário = 1×, secundário/terciário = peso definido na biblioteca)</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Sub-tabs */}
+              <div className="flex gap-1 bg-white border border-outline-variant rounded-lg p-1 mb-4 w-fit">
+                {(['Adicionar treino', `Treinos (${selectedRotina.sessoes_treino.length})`] as const).map((t, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setRotinaSubTab(i as 0 | 1)}
+                    className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${rotinaSubTab === i ? 'bg-primary-dark text-white' : 'text-secondary hover:bg-gray-100'}`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sub-tab 1: Treinos list */}
+              {rotinaSubTab === 1 && (
+                <div className="space-y-3">
+                  {selectedRotina.sessoes_treino.length === 0 && (
+                    <div className="text-center py-12 text-outline">
+                      <p className="font-semibold">Nenhum treino nesta rotina</p>
+                      <p className="text-sm mt-1">Use "Adicionar treino" para criar o primeiro</p>
+                    </div>
+                  )}
+                  {[...selectedRotina.sessoes_treino]
+                    .sort((a, b) => (a.ordem ?? 99) - (b.ordem ?? 99))
+                    .map((s, idx, arr) => (
+                    <div key={s.id} className="card">
+                      <div className="flex items-center gap-3">
+                        {s.dia_letra && (
+                          <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                            {s.dia_letra}
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-semibold text-secondary">{s.nome}</p>
+                            {s.dia_semana_numero !== null && (
+                              <span className="text-xs text-outline bg-gray-100 px-2 py-0.5 rounded">
+                                {DIAS_SEMANA.find(d => d.value === String(s.dia_semana_numero))?.label}
+                              </span>
+                            )}
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${s.tipo === 'aerobico' ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                              {s.tipo === 'aerobico' ? (s.tipo_aerobico || 'Aeróbico') : 'Musculação'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-outline mt-0.5">
+                            {s.tipo === 'aerobico'
+                              ? (s.observacoes ? s.observacoes.slice(0, 60) + (s.observacoes.length > 60 ? '...' : '') : 'Treino aeróbico')
+                              : `${s.sessao_itens.length} exercício${s.sessao_itens.length !== 1 ? 's' : ''}`}
+                            {s.orientacoes_aluno && ` · ${s.orientacoes_aluno.slice(0, 40)}...`}
+                          </p>
+                        </div>
+                        {/* Reorder arrows */}
+                        <div className="flex flex-col gap-0.5 flex-shrink-0">
+                          <button
+                            onClick={() => moverSessao(s.id, 'up')}
+                            disabled={idx === 0 || reordering}
+                            className="p-1 rounded text-outline hover:text-secondary hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                            title="Mover para cima"
+                          >
+                            <ArrowUp size={13} />
+                          </button>
+                          <button
+                            onClick={() => moverSessao(s.id, 'down')}
+                            disabled={idx === arr.length - 1 || reordering}
+                            className="p-1 rounded text-outline hover:text-secondary hover:bg-gray-100 disabled:opacity-30 transition-colors"
+                            title="Mover para baixo"
+                          >
+                            <ArrowDown size={13} />
+                          </button>
+                        </div>
+                      </div>
+
+                      {s.sessao_itens.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-outline-variant space-y-2">
+                          {s.sessao_itens.map((item, iIdx) => {
+                            const pSemanas: SemanaItem[] = item.periodizacao_semanal ?? []
+                            return (
+                              <div key={item.id} className="text-sm">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-bold text-outline w-5">{iIdx + 1}.</span>
+                                  <span className="font-medium text-secondary">{item.exercicio?.nome ?? '–'}</span>
+                                  <span className="text-xs text-outline bg-gray-100 px-1.5 py-0.5 rounded">{item.exercicio?.grupo_muscular}</span>
+                                </div>
+                                {item.observacoes && (
+                                  <p className="ml-7 text-xs text-primary mb-1">💡 {item.observacoes}</p>
+                                )}
+                                {pSemanas.length > 0 ? (
+                                  <div className="ml-7 overflow-x-auto">
+                                    <table className="text-xs border-collapse">
+                                      <thead>
+                                        <tr>
+                                          <th className="pr-3 py-0.5 text-left text-outline font-semibold"></th>
+                                          {pSemanas.map(p => (
+                                            <th key={p.semana} className="px-2 py-0.5 text-outline font-semibold text-center">S{p.semana}</th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(['series', 'repeticoes', 'carga_kg'] as const).map(field => (
+                                          <tr key={field}>
+                                            <td className="pr-3 py-0.5 text-outline capitalize">{field === 'carga_kg' ? 'Carga' : field === 'series' ? 'Séries' : 'Reps'}</td>
+                                            {pSemanas.map(p => (
+                                              <td key={p.semana} className="px-2 py-0.5 text-center text-secondary font-medium">
+                                                {(p as any)[field] || '–'}
+                                              </td>
+                                            ))}
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                ) : (
+                                  <p className="ml-7 text-xs text-outline">
+                                    {item.series && `${item.series}x`}{item.repeticoes && ` ${item.repeticoes}`}{item.carga_kg && ` @ ${item.carga_kg}kg`}
+                                  </p>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Sub-tab 0: Add workout day */}
+              {rotinaSubTab === 0 && (
+                <div className="card">
+                  <h3 className="font-extrabold text-secondary mb-4">Novo Dia de Treino</h3>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                    <div>
+                      <label className="label">Letra</label>
+                      <select className="input" value={novaDia.dia_letra} onChange={e => setNovaDia(p => ({ ...p, dia_letra: e.target.value }))}>
+                        {DIA_LETRAS.map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Dia da semana</label>
+                      <select className="input" value={novaDia.dia_semana_numero} onChange={e => setNovaDia(p => ({ ...p, dia_semana_numero: e.target.value }))}>
+                        {DIAS_SEMANA.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Tipo</label>
+                      <select className="input" value={novaDia.tipo} onChange={e => setNovaDia(p => ({ ...p, tipo: e.target.value }))}>
+                        <option value="musculacao">Musculação</option>
+                        <option value="aerobico">Aeróbico</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Nome (opcional)</label>
+                      <input className="input" placeholder={`Treino ${novaDia.dia_letra}`} value={novaDia.nome} onChange={e => setNovaDia(p => ({ ...p, nome: e.target.value }))} />
+                    </div>
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="label">Orientações para o aluno (opcional)</label>
+                    <textarea className="input min-h-[60px]" placeholder="Instruções específicas deste treino..." value={novaDia.orientacoes_aluno} onChange={e => setNovaDia(p => ({ ...p, orientacoes_aluno: e.target.value }))} />
+                  </div>
+
+                  {/* Aerobico: tipo + description */}
+                  {novaDia.tipo === 'aerobico' && (
+                    <div className="space-y-3 mb-4">
+                      <div>
+                        <label className="label">Tipo de treino aeróbico</label>
+                        <select className="input" value={novaDia.tipo_aerobico} onChange={e => setNovaDia(p => ({ ...p, tipo_aerobico: e.target.value }))}>
+                          <option value="">— Selecionar —</option>
+                          {TIPOS_AEROBICO.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="label">Descrição do treino</label>
+                        <textarea className="input min-h-[100px]" placeholder="Descreva o treino: distância, pace, zonas de esforço, séries de tiros, etc." value={novaDia.descricao_aerobico} onChange={e => setNovaDia(p => ({ ...p, descricao_aerobico: e.target.value }))} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Musculacao: exercise picker + periodization */}
+                  {novaDia.tipo === 'musculacao' && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="label">Semanas de periodização</p>
+                        <div className="flex items-center gap-2">
+                          {selectedRotina?.data_inicio && selectedRotina?.data_fim && (
+                            <span className="text-xs text-primary font-semibold">
+                              ({calcDuracao(selectedRotina.data_inicio, selectedRotina.data_fim)})
+                            </span>
+                          )}
+                          <div className="flex gap-1">
+                            {Array.from({ length: Math.min(12, Math.max(6, numSemanas)) }, (_, i) => i + 1).map(n => (
+                              <button
+                                key={n}
+                                onClick={() => updateNumSemanas(n)}
+                                className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${numSemanas === n ? 'bg-primary text-white' : 'bg-gray-100 text-secondary hover:bg-gray-200'}`}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Added exercises */}
+                      {sessaoItens.length > 0 && (
+                        <div className="mb-4 space-y-3">
+                          {sessaoItens.map((item, idx) => (
+                            <div key={item.key} className="bg-background rounded-xl p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-outline">{idx + 1}.</span>
+                                  <span className="font-semibold text-secondary text-sm">{item.nome}</span>
+                                  <span className="text-xs text-outline bg-white px-1.5 py-0.5 rounded">{item.grupo_muscular}</span>
+                                </div>
+                                <button onClick={() => removeItem(item.key)} className="p-1 text-outline hover:text-red-500"><X size={14} /></button>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr>
+                                      <th className="text-left text-outline pr-2 py-1 w-16"></th>
+                                      {item.periodizacao.map(p => (
+                                        <th key={p.semana} className="text-center text-outline px-1 py-1 min-w-[60px]">S{p.semana}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(['series', 'repeticoes', 'carga_kg'] as const).map(field => (
+                                      <tr key={field}>
+                                        <td className="text-outline pr-2 py-0.5 text-xs capitalize">{field === 'carga_kg' ? 'Carga' : field === 'series' ? 'Séries' : 'Reps'}</td>
+                                        {item.periodizacao.map(p => (
+                                          <td key={p.semana} className="px-1 py-0.5">
+                                            <input
+                                              className="w-full text-center border border-outline-variant rounded px-1 py-0.5 text-xs focus:outline-none focus:border-primary"
+                                              value={(p as any)[field]}
+                                              onChange={e => updatePeriod(item.key, p.semana, field, e.target.value)}
+                                              placeholder="–"
+                                            />
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                    <tr>
+                                      <td className="text-outline pr-2 py-1 text-xs" colSpan={1}>Obs.</td>
+                                      <td colSpan={item.periodizacao.length} className="py-1 px-1">
+                                        <input
+                                          className="w-full border border-outline-variant rounded px-2 py-0.5 text-xs focus:outline-none focus:border-primary"
+                                          value={item.observacoes}
+                                          onChange={e => updateItemField(item.key, 'observacoes', e.target.value)}
+                                          placeholder="Observações do exercício (visível ao aluno)..."
+                                        />
+                                      </td>
+                                    </tr>
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Exercise selector */}
+                      <div className="border border-outline-variant rounded-xl p-3">
+                        <p className="label mb-2">Adicionar exercício</p>
+                        <div className="flex gap-2 mb-2 flex-wrap">
+                          <input
+                            className="input flex-1 text-sm py-1.5"
+                            placeholder="Buscar exercício..."
+                            value={searchEx}
+                            onChange={e => setSearchEx(e.target.value)}
+                          />
+                          <select className="input text-sm py-1.5" value={grupoFilter} onChange={e => setGrupoFilter(e.target.value)}>
+                            <option value="">Todos os grupos</option>
+                            {grupos.map(g => <option key={g} value={g}>{g}</option>)}
+                          </select>
+                        </div>
+                        <div className="max-h-48 overflow-y-auto space-y-1">
+                          {exFiltrados.slice(0, 30).map(ex => {
+                            const added = sessaoItens.some(i => i.exercicio_id === ex.id)
+                            return (
+                              <button
+                                key={ex.id}
+                                onClick={() => addExercicio(ex)}
+                                disabled={added}
+                                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${added ? 'bg-green-50 text-green-700 cursor-default' : 'hover:bg-gray-100 text-secondary'}`}
+                              >
+                                <span className="font-medium">{ex.nome}</span>
+                                <span className="text-xs text-outline ml-2">{ex.grupo_muscular}</span>
+                                {added && <span className="text-xs ml-auto float-right">✓ Adicionado</span>}
+                              </button>
+                            )
+                          })}
+                          {exFiltrados.length === 0 && <p className="text-xs text-outline text-center py-4">Nenhum exercício encontrado</p>}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 mt-4">
+                    <button
+                      onClick={createSessaoDia}
+                      disabled={savingDia || (novaDia.tipo === 'musculacao' && sessaoItens.length === 0)}
+                      className="btn-primary text-sm px-6"
+                    >
+                      {savingDia ? 'Salvando...' : 'Salvar Treino'}
+                    </button>
+                    <button onClick={() => setRotinaSubTab(1)} className="btn-ghost text-sm">Cancelar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB 1: Dados ───────────────────────────────────────────────────── */}
+      {tab === 1 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="card">
+            <h3 className="font-extrabold text-secondary mb-4">Dados Pessoais</h3>
+            <dl className="space-y-3">
+              {[
+                ['E-mail', aluno.usuario?.email],
+                ['Telefone', aluno.usuario?.telefone],
+                ['Nascimento', aluno.usuario?.data_nascimento ? new Date(aluno.usuario.data_nascimento + 'T00:00').toLocaleDateString('pt-BR') : null],
+                ['Plano', aluno.plano_contratado],
+                ['Valor', aluno.valor_plano ? `R$ ${aluno.valor_plano}` : null],
+                ['Contato preferido', aluno.horario_contato_preferido],
+                ['Nível', aluno.nivel],
+                ['Autonomia', aluno.autonomia],
+                ['Frequência', aluno.disciplina],
+                ['Horário', aluno.horario_treino],
+              ].filter(([, v]) => v).map(([k, v]) => (
+                <div key={k as string} className="flex justify-between gap-4">
+                  <dt className="text-xs font-semibold text-outline uppercase tracking-wider">{k}</dt>
+                  <dd className="text-sm text-secondary text-right">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+          <div className="card">
+            <h3 className="font-extrabold text-secondary mb-4">Perfil Comportamental</h3>
+            {aluno.perfil_comportamental?.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {aluno.perfil_comportamental.map((t: string) => (
+                  <span key={t} className="px-2 py-1 bg-blue-50 text-primary text-xs font-semibold rounded-full">{t}</span>
+                ))}
+              </div>
+            )}
+            <dl className="space-y-2">
+              {[['Motivação', aluno.motivacao_principal], ['Dificuldade', aluno.dificuldade_principal]].filter(([, v]) => v).map(([k, v]) => (
+                <div key={k as string}>
+                  <dt className="text-xs font-semibold text-outline uppercase tracking-wider">{k}</dt>
+                  <dd className="text-sm text-secondary mt-0.5">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 pt-4 border-t border-outline-variant">
+              <p className="text-xs font-semibold text-outline uppercase tracking-wider mb-3">Ações do Administrador</p>
+              <div className="space-y-2">
+                <button onClick={() => { setTab(3); }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
+                  <Plus size={14} /> Nova Anotação
+                </button>
+                <button onClick={() => { setShowResetModal(true); setResetMsg('') }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
+                  <KeyRound size={14} /> Redefinir Senha
+                </button>
+                {alunoStatus === 'ativo' ? (
+                  <button
+                    onClick={inativarAluno}
+                    disabled={statusLoading}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-orange-50 text-orange-700 text-xs font-semibold hover:bg-orange-100 transition-colors"
+                  >
+                    <UserX size={14} /> {statusLoading ? '...' : 'Inativar aluno'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={ativarAluno}
+                    disabled={statusLoading}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-green-50 text-green-700 text-xs font-semibold hover:bg-green-100 transition-colors"
+                  >
+                    <UserCheck size={14} /> {statusLoading ? '...' : 'Ativar aluno'}
+                  </button>
+                )}
+                <button
+                  onClick={excluirAluno}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors"
+                >
+                  <Trash2 size={14} /> Excluir aluno definitivamente
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 2: Ficha Saúde ─────────────────────────────────────────────── */}
+      {tab === 2 && (
+        <div className="card">
+          <h3 className="font-extrabold text-secondary mb-4">Ficha de Saúde</h3>
+          <div className="space-y-4">
+            {[
+              ['Dores e Lesões', aluno.dores_lesoes],
+              ['Limitações', aluno.limitacoes],
+              ['Exercícios que Incomodam', aluno.exercicios_que_incomodam],
+              ['Exercícios Preferidos', aluno.exercicios_preferidos],
+              ['Exercícios que Odeia', aluno.exercicios_que_odeia],
+              ['Pontos de Atenção', aluno.pontos_atencao],
+            ].filter(([, v]) => v).map(([k, v]) => (
+              <div key={k as string} className="bg-background rounded-lg p-4">
+                <p className="text-xs font-semibold text-outline uppercase tracking-wider mb-1">{k}</p>
+                <p className="text-sm text-secondary">{v}</p>
+              </div>
+            ))}
+            {![aluno.dores_lesoes, aluno.limitacoes, aluno.exercicios_que_incomodam].some(Boolean) && (
+              <p className="text-sm text-outline text-center py-8">Nenhuma informação de saúde registrada.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 3: Anotações ───────────────────────────────────────────────── */}
+      {tab === 3 && (
+        <div className="space-y-4">
+          <div className="card">
+            <h3 className="font-extrabold text-secondary mb-4">Nova Anotação</h3>
+            <textarea
+              className="input min-h-[100px]"
+              placeholder="Adicione uma anotação privada sobre este aluno..."
+              value={novaNota}
+              onChange={e => setNovaNota(e.target.value)}
+            />
+            <button onClick={saveNota} disabled={savingNota || !novaNota.trim()} className="btn-primary mt-3 text-sm px-6">
+              {savingNota ? 'Salvando...' : 'Salvar Anotação'}
+            </button>
+            {notaError && <p className="text-xs text-red-500 mt-2">{notaError}</p>}
+          </div>
+          {anotacoesList.map((a: any) => (
+            <div key={a.id} className="card">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-primary">{a.tipo}</span>
+                  <span className="text-xs text-outline">
+                    {new Date(a.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {a.autor?.nome && ` · ${a.autor.nome}`}
+                  </span>
+                </div>
+                <button onClick={() => deleteNota(a.id)} className="p-1 text-outline hover:text-red-500 transition-colors">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              <p className="text-sm text-secondary">{a.texto}</p>
+            </div>
+          ))}
+          {anotacoesList.length === 0 && (
+            <p className="text-sm text-outline text-center py-8">Nenhuma anotação registrada.</p>
+          )}
+        </div>
+      )}
+
+      {/* ── TAB 4: Feedbacks ───────────────────────────────────────────────── */}
+      {tab === 4 && (
+        <div className="space-y-4">
+          {feedbacks_semanais.map((f: any) => (
+            <div key={f.id} className="card">
+              <div className="flex justify-between items-start mb-3">
+                <h4 className="font-bold text-secondary">Semana de {new Date(f.semana_referencia + 'T00:00').toLocaleDateString('pt-BR')}</h4>
+                {f.aderencia_0_10 !== null && (
+                  <span className={`text-sm font-bold px-3 py-1 rounded-full ${f.aderencia_0_10 >= 7 ? 'bg-green-50 text-green-700' : f.aderencia_0_10 >= 5 ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
+                    Aderência: {f.aderencia_0_10}/10
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {f.treinos_feitos !== null && <p><span className="font-semibold">Treinos:</span> {f.treinos_feitos}</p>}
+                {f.cardios_feitos !== null && <p><span className="font-semibold">Cárdios:</span> {f.cardios_feitos}</p>}
+                {f.energia && <p><span className="font-semibold">Energia:</span> {f.energia}</p>}
+                {f.peso_atual && <p><span className="font-semibold">Peso:</span> {f.peso_atual} kg</p>}
+              </div>
+              {f.sentiu_dor && <div className="mt-2 p-2 bg-red-50 rounded text-xs text-red-700"><AlertCircle size={12} className="inline mr-1" />Dor relatada: {f.descricao_dor}</div>}
+              {f.duvida_semana && <p className="mt-2 text-sm text-secondary"><span className="font-semibold">Dúvida:</span> {f.duvida_semana}</p>}
+            </div>
+          ))}
+          {feedbacks_semanais.length === 0 && <p className="text-sm text-outline text-center py-8">Nenhum feedback semanal enviado.</p>}
+        </div>
+      )}
+
+      {/* ── TAB 5: Score / Evolução ─────────────────────────────────────────── */}
+      {tab === 5 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="card">
+            <h3 className="font-extrabold text-secondary mb-4">Evolução de Carga</h3>
+            <div className="flex items-end justify-center gap-2 h-32">
+              {[40, 50, 55, 60, 65, 70, 75].map((v, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <span className="text-[10px] text-outline">{v}kg</span>
+                  <div className={`w-8 rounded-t-sm ${i === 6 ? 'bg-primary-dark' : 'bg-primary opacity-60'}`} style={{ height: `${(v / 75) * 80}px` }} />
+                  <span className="text-[10px] text-outline">S{i + 1}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <h3 className="font-extrabold text-secondary mb-4">Aderência ao Treino</h3>
+            <div className="flex items-center justify-center">
+              <div className="relative w-32 h-32">
+                <svg viewBox="0 0 36 36" className="w-32 h-32 -rotate-90">
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e1e2e9" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#1E6FD9" strokeWidth="3" strokeDasharray={`${aderencia} ${100 - aderencia}`} strokeLinecap="round" />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-extrabold text-primary-dark">{aderencia.toFixed(0)}%</span>
+                  <span className="text-[10px] text-outline">este mês</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {aluno.aluno_badges?.length > 0 && (
+            <div className="card md:col-span-2">
+              <h3 className="font-extrabold text-secondary mb-4">Conquistas e Badges</h3>
+              <div className="flex flex-wrap gap-3">
+                {aluno.aluno_badges.map((ab: any) => (
+                  <div key={ab.badge.id} className="flex items-center gap-2 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-xl">
+                    <span className="text-xl">{ab.badge.icone}</span>
+                    <div>
+                      <p className="text-xs font-bold text-yellow-800">{ab.badge.nome}</p>
+                      <p className="text-[10px] text-yellow-600">{new Date(ab.conquistado_em).toLocaleDateString('pt-BR')}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Password reset modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-card w-full max-w-sm p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-extrabold text-secondary">Redefinir Senha</h3>
+              <button onClick={() => setShowResetModal(false)} className="text-outline hover:text-secondary"><X size={20} /></button>
+            </div>
+            <p className="text-sm text-outline mb-4">Aluno: <span className="font-semibold text-secondary">{nome}</span></p>
+            <div className="space-y-4">
+              <div>
+                <label className="label">Nova senha</label>
+                <input type="text" className="input" placeholder="Mínimo 6 caracteres" value={novaSenha} onChange={e => setNovaSenha(e.target.value)} />
+              </div>
+              {resetMsg && <p className={`text-sm px-3 py-2 rounded-lg ${resetMsg.includes('sucesso') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>{resetMsg}</p>}
+              <button onClick={resetSenha} disabled={resetLoading} className="btn-primary w-full justify-center">
+                {resetLoading ? 'Salvando...' : 'Salvar nova senha'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

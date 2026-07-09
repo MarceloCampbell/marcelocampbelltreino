@@ -1,0 +1,69 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #F7FAFD;
+  --foreground: #424242;
+}
+
+body {
+  background-color: #F7FAFD;
+  color: #424242;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 300;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 800;
+  color: #424242;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-dark text-white font-bold px-8 py-3 rounded-lg hover:bg-blue-700 transition-all shadow-button active:scale-95 min-h-[48px] flex items-center justify-center gap-2;
+  }
+  .btn-secondary {
+    @apply bg-background border border-primary text-secondary font-semibold px-6 py-3 rounded-lg hover:bg-blue-50 transition-all min-h-[48px] flex items-center justify-center gap-2;
+  }
+  .btn-ghost {
+    @apply text-secondary font-medium px-4 py-2 rounded-lg hover:bg-gray-100 transition-all;
+  }
+  .card {
+    @apply bg-white rounded-xl shadow-card p-6;
+  }
+  .card-hover {
+    @apply card hover:shadow-card-hover transition-shadow cursor-pointer;
+  }
+  .input {
+    @apply w-full border border-outline-variant bg-white rounded-lg px-4 py-3 text-sm text-secondary placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all min-h-[48px];
+  }
+  .label {
+    @apply text-xs font-semibold text-secondary uppercase tracking-widest mb-1 block;
+  }
+  .badge-baixa {
+    @apply bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+  .badge-media {
+    @apply bg-orange-50 text-orange-700 text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+  .badge-alta {
+    @apply bg-red-50 text-red-700 text-xs font-semibold px-2 py-0.5 rounded-full;
+  }
+  .badge-urgente {
+    @apply bg-red-100 text-red-900 text-xs font-bold px-2 py-0.5 rounded-full;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-secondary hover:bg-blue-50 hover:text-primary-dark transition-all;
+  }
+  .sidebar-link-active {
+    @apply bg-blue-50 text-primary-dark font-semibold;
+  }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #F7FAFD; }
+::-webkit-scrollbar-thumb { background: #c1c7d2; border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: #727782; }
