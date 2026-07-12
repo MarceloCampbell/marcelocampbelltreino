@@ -77,6 +77,8 @@ type ItemForm = {
   periodizacao: SemanaItem[]
   descanso_seg: string
   observacoes: string
+  metodo: string
+  metodo_params: Record<string, string>
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -231,7 +233,15 @@ export function GestaoAlunoClient({
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editItemPeriod, setEditItemPeriod] = useState<SemanaItem[]>([])
   const [editItemObs, setEditItemObs] = useState('')
+  const [editItemMetodo, setEditItemMetodo] = useState('')
+  const [editItemMetodoParams, setEditItemMetodoParams] = useState<Record<string, string>>({})
   const [savingItem, setSavingItem] = useState(false)
+
+  // ── Add exercise to existing sessão
+  const [addingExToSessaoId, setAddingExToSessaoId] = useState<string | null>(null)
+  const [addExSearch, setAddExSearch] = useState('')
+  const [addExGrupo, setAddExGrupo] = useState('')
+  const [addingExLoading, setAddingExLoading] = useState(false)
 
   // ── Novo dia de treino (inside selected rotina)
   const [novaDia, setNovaDia] = useState({
@@ -375,6 +385,8 @@ export function GestaoAlunoClient({
     setEditingItemId(item.id)
     setEditItemPeriod(period)
     setEditItemObs(item.observacoes ?? '')
+    setEditItemMetodo('')
+    setEditItemMetodoParams({})
   }
 
   async function saveEditItem(sessaoId: string, itemId: string) {
@@ -409,6 +421,56 @@ export function GestaoAlunoClient({
       const updatedRotina = updated as unknown as Rotina
       setSelectedRotina(updatedRotina)
       setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+  }
+
+  async function addExToExistingSessao(sessaoId: string, ex: Exercicio) {
+    if (!selectedRotina) return
+    setAddingExLoading(true)
+    const sessao = selectedRotina.sessoes_treino.find(s => s.id === sessaoId)
+    const maxOrdem = sessao && sessao.sessao_itens.length > 0
+      ? Math.max(...sessao.sessao_itens.map(i => i.ordem))
+      : 0
+    await supabase.from('sessao_itens').insert({
+      sessao_id: sessaoId,
+      exercicio_id: ex.id,
+      ordem: maxOrdem + 1,
+      series: 3,
+      repeticoes: '10-12',
+      periodizacao_semanal: buildPeriodizacao(numSemanas),
+    })
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+    setAddExSearch('')
+    setAddingExLoading(false)
+  }
+
+  function applyMetodoTemplate(metodo: string, params: Record<string, string>): string {
+    switch (metodo) {
+      case 'cluster_set':
+        return `Cluster Set: ${params.blocos || '?'} blocos × ${params.reps_bloco || '?'} reps | Descanso entre blocos: ${params.descanso || '?'}s`
+      case 'rest_pause':
+        return `Rest Pause: ${params.r1 || '?'} + ${params.r2 || '?'} + ${params.r3 || '?'} reps | Descanso: ${params.descanso || '?'}s`
+      case 'drop_set':
+        return `Drop Set: reduzir ${params.pct || '?'}% de carga até a falha`
+      case 'back_off_set':
+        return `Back Off Set: −${params.pct || '?'}% de carga na série extra | Descanso extra: ${params.descanso || '?'}s`
+      case 'pausa_excentrica':
+        return `Pausa excêntrica: ${params.seg || '3'}s no ponto de maior tensão`
+      case 'pico_contracao':
+        return `Pico de contração: ${params.seg || '2'}s de pausa no topo do movimento`
+      case 'reps_parciais':
+        return `Repetições parciais: últimas ${params.reps || '4'} reps em ¾ do movimento`
+      case 'descanso_especifico':
+        return `Descanso específico: ${params.seg || '90'}s entre séries`
+      default:
+        return ''
     }
   }
 
@@ -455,6 +517,8 @@ export function GestaoAlunoClient({
       periodizacao: buildPeriodizacao(numSemanas),
       descanso_seg: '60',
       observacoes: '',
+      metodo: '',
+      metodo_params: {},
     }])
     setSearchEx('')
   }
@@ -465,6 +529,10 @@ export function GestaoAlunoClient({
 
   function updateItemField(key: string, field: 'observacoes' | 'descanso_seg', value: string) {
     setSessaoItens(prev => prev.map(i => i.key !== key ? i : { ...i, [field]: value }))
+  }
+
+  function updateItemMetodo(key: string, metodo: string, params: Record<string, string>, obs: string) {
+    setSessaoItens(prev => prev.map(i => i.key !== key ? i : { ...i, metodo, metodo_params: params, observacoes: obs }))
   }
 
   function updatePeriod(key: string, semana: number, field: keyof SemanaItem, value: string) {
@@ -641,6 +709,11 @@ export function GestaoAlunoClient({
   const exFiltrados = exerciciosBiblioteca.filter(e =>
     (!grupoFilter || e.grupo_muscular === grupoFilter) &&
     (!searchEx || e.nome.toLowerCase().includes(searchEx.toLowerCase()))
+  )
+
+  const exFiltradosAdd = exerciciosBiblioteca.filter(e =>
+    (!addExGrupo || e.grupo_muscular === addExGrupo) &&
+    (!addExSearch || e.nome.toLowerCase().includes(addExSearch.toLowerCase()))
   )
 
   // Next available letter suggestion
@@ -1056,6 +1129,20 @@ export function GestaoAlunoClient({
                             {s.orientacoes_aluno && ` · ${s.orientacoes_aluno.slice(0, 40)}...`}
                           </p>
                         </div>
+                        {/* Add exercise to existing sessão */}
+                        {s.tipo !== 'aerobico' && (
+                          <button
+                            onClick={() => {
+                              setAddingExToSessaoId(addingExToSessaoId === s.id ? null : s.id)
+                              setAddExSearch('')
+                              setAddExGrupo('')
+                            }}
+                            className={`p-1.5 rounded transition-colors flex-shrink-0 text-xs font-semibold flex items-center gap-1 ${addingExToSessaoId === s.id ? 'bg-primary text-white' : 'text-primary hover:bg-primary/10 border border-primary/40'}`}
+                            title="Adicionar exercício"
+                          >
+                            <Plus size={12} /> Exercício
+                          </button>
+                        )}
                         {/* Delete sessao */}
                         <button
                           onClick={() => deleteSessao(s.id)}
@@ -1085,6 +1172,42 @@ export function GestaoAlunoClient({
                         </div>
                       </div>
 
+                      {addingExToSessaoId === s.id && (
+                        <div className="mt-3 pt-3 border-t border-outline-variant">
+                          <p className="text-xs font-bold text-secondary mb-2">Adicionar exercício a este treino</p>
+                          <div className="flex gap-2 mb-2">
+                            <input
+                              className="input flex-1 text-sm py-1.5"
+                              placeholder="Buscar exercício..."
+                              value={addExSearch}
+                              onChange={e => setAddExSearch(e.target.value)}
+                            />
+                            <select className="input text-sm py-1.5 w-40" value={addExGrupo} onChange={e => setAddExGrupo(e.target.value)}>
+                              <option value="">Todos</option>
+                              {grupos.map(g => <option key={g} value={g}>{g}</option>)}
+                            </select>
+                          </div>
+                          <div className="max-h-40 overflow-y-auto space-y-1 border border-outline-variant rounded-lg p-1">
+                            {exFiltradosAdd.slice(0, 25).map(ex => {
+                              const alreadyIn = s.sessao_itens.some(i => i.exercicio?.id === ex.id)
+                              return (
+                                <button
+                                  key={ex.id}
+                                  onClick={() => addExToExistingSessao(s.id, ex)}
+                                  disabled={alreadyIn || addingExLoading}
+                                  className={`w-full text-left px-3 py-1.5 rounded text-sm transition-colors ${alreadyIn ? 'text-outline cursor-default' : 'hover:bg-gray-100 text-secondary'}`}
+                                >
+                                  <span className="font-medium">{ex.nome}</span>
+                                  <span className="text-xs text-outline ml-2">{ex.grupo_muscular}</span>
+                                  {alreadyIn && <span className="text-xs ml-1 text-green-600">✓</span>}
+                                </button>
+                              )
+                            })}
+                            {exFiltradosAdd.length === 0 && <p className="text-xs text-outline text-center py-3">Nenhum exercício encontrado</p>}
+                          </div>
+                        </div>
+                      )}
+
                       {s.sessao_itens.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-outline-variant space-y-2">
                           {s.sessao_itens.map((item, iIdx) => {
@@ -1108,6 +1231,105 @@ export function GestaoAlunoClient({
 
                                 {isEditingThis ? (
                                   <div className="ml-7 bg-background rounded-lg p-3">
+                                    {/* Método de treino */}
+                                    <div className="mb-3">
+                                      <label className="text-xs font-semibold text-outline mb-1 block">Método de treino</label>
+                                      <select
+                                        className="input text-xs py-1"
+                                        value={editItemMetodo}
+                                        onChange={e => {
+                                          const m = e.target.value
+                                          setEditItemMetodo(m)
+                                          setEditItemMetodoParams({})
+                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
+                                          if (techMethods.includes(m)) {
+                                            setEditItemObs(applyMetodoTemplate(m, {}))
+                                          }
+                                        }}
+                                      >
+                                        <option value="">— Nenhum —</option>
+                                        <optgroup label="Métodos Estruturais">
+                                          <option value="cluster_set">Cluster Set</option>
+                                          <option value="rest_pause">Rest Pause</option>
+                                          <option value="drop_set">Drop Set</option>
+                                          <option value="back_off_set">Back Off Set</option>
+                                        </optgroup>
+                                        <optgroup label="Instruções Técnicas">
+                                          <option value="pausa_excentrica">Pausa Excêntrica</option>
+                                          <option value="pico_contracao">Pico de Contração</option>
+                                          <option value="reps_parciais">Repetições Parciais</option>
+                                          <option value="descanso_especifico">Descanso Específico</option>
+                                        </optgroup>
+                                      </select>
+
+                                      {/* Structural method sub-fields */}
+                                      {editItemMetodo === 'cluster_set' && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          {[['blocos', 'Blocos'], ['reps_bloco', 'Reps/bloco'], ['descanso', 'Descanso (s)']].map(([k, label]) => (
+                                            <div key={k} className="flex flex-col gap-0.5">
+                                              <span className="text-[10px] text-outline">{label}</span>
+                                              <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[k] ?? ''} onChange={e => {
+                                                const p = { ...editItemMetodoParams, [k]: e.target.value }
+                                                setEditItemMetodoParams(p)
+                                                setEditItemObs(applyMetodoTemplate('cluster_set', p))
+                                              }} placeholder="?" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {editItemMetodo === 'rest_pause' && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          {[['r1', 'Reps 1'], ['r2', 'Reps 2'], ['r3', 'Reps 3'], ['descanso', 'Descanso (s)']].map(([k, label]) => (
+                                            <div key={k} className="flex flex-col gap-0.5">
+                                              <span className="text-[10px] text-outline">{label}</span>
+                                              <input className="input text-xs py-0.5 w-16" value={editItemMetodoParams[k] ?? ''} onChange={e => {
+                                                const p = { ...editItemMetodoParams, [k]: e.target.value }
+                                                setEditItemMetodoParams(p)
+                                                setEditItemObs(applyMetodoTemplate('rest_pause', p))
+                                              }} placeholder="?" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {(editItemMetodo === 'drop_set' || editItemMetodo === 'back_off_set') && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-outline">% redução</span>
+                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams['pct'] ?? ''} onChange={e => {
+                                              const p = { ...editItemMetodoParams, pct: e.target.value }
+                                              setEditItemMetodoParams(p)
+                                              setEditItemObs(applyMetodoTemplate(editItemMetodo, p))
+                                            }} placeholder="?" />
+                                          </div>
+                                          {editItemMetodo === 'back_off_set' && (
+                                            <div className="flex flex-col gap-0.5">
+                                              <span className="text-[10px] text-outline">Descanso extra (s)</span>
+                                              <input className="input text-xs py-0.5 w-24" value={editItemMetodoParams['descanso'] ?? ''} onChange={e => {
+                                                const p = { ...editItemMetodoParams, descanso: e.target.value }
+                                                setEditItemMetodoParams(p)
+                                                setEditItemObs(applyMetodoTemplate('back_off_set', p))
+                                              }} placeholder="?" />
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      {['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico'].includes(editItemMetodo) && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-outline">
+                                              {editItemMetodo === 'reps_parciais' ? 'Reps parciais' : 'Segundos'}
+                                            </span>
+                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'] ?? ''} onChange={e => {
+                                              const key = editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'
+                                              const p = { ...editItemMetodoParams, [key]: e.target.value }
+                                              setEditItemMetodoParams(p)
+                                              setEditItemObs(applyMetodoTemplate(editItemMetodo, p))
+                                            }} placeholder={editItemMetodo === 'pausa_excentrica' ? '3' : editItemMetodo === 'pico_contracao' ? '2' : editItemMetodo === 'reps_parciais' ? '4' : '90'} />
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+
                                     <div className="overflow-x-auto mb-2">
                                       <table className="w-full text-xs">
                                         <thead>
@@ -1321,7 +1543,7 @@ export function GestaoAlunoClient({
                                       </tr>
                                     ))}
                                     <tr>
-                                      <td className="text-outline pr-2 py-1 text-xs" colSpan={1}>Obs.</td>
+                                      <td className="text-outline pr-2 py-1 text-xs">Obs.</td>
                                       <td colSpan={item.periodizacao.length} className="py-1 px-1">
                                         <input
                                           className="w-full border border-outline-variant rounded px-2 py-0.5 text-xs focus:outline-none focus:border-primary"
@@ -1329,6 +1551,35 @@ export function GestaoAlunoClient({
                                           onChange={e => updateItemField(item.key, 'observacoes', e.target.value)}
                                           placeholder="Observações do exercício (visível ao aluno)..."
                                         />
+                                      </td>
+                                    </tr>
+                                    <tr>
+                                      <td className="text-outline pr-2 py-1 text-xs">Método</td>
+                                      <td colSpan={item.periodizacao.length} className="py-1 px-1">
+                                        <select
+                                          className="w-full border border-outline-variant rounded px-2 py-0.5 text-xs focus:outline-none focus:border-primary"
+                                          value={item.metodo}
+                                          onChange={e => {
+                                            const m = e.target.value
+                                            const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
+                                            const obs = techMethods.includes(m) ? applyMetodoTemplate(m, {}) : item.observacoes
+                                            updateItemMetodo(item.key, m, {}, obs)
+                                          }}
+                                        >
+                                          <option value="">— Nenhum —</option>
+                                          <optgroup label="Métodos Estruturais">
+                                            <option value="cluster_set">Cluster Set</option>
+                                            <option value="rest_pause">Rest Pause</option>
+                                            <option value="drop_set">Drop Set</option>
+                                            <option value="back_off_set">Back Off Set</option>
+                                          </optgroup>
+                                          <optgroup label="Instruções Técnicas">
+                                            <option value="pausa_excentrica">Pausa Excêntrica</option>
+                                            <option value="pico_contracao">Pico de Contração</option>
+                                            <option value="reps_parciais">Repetições Parciais</option>
+                                            <option value="descanso_especifico">Descanso Específico</option>
+                                          </optgroup>
+                                        </select>
                                       </td>
                                     </tr>
                                   </tbody>

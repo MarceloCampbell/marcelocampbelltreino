@@ -24,9 +24,9 @@ type Exercicio = {
 }
 
 const GRUPOS = [
-  'Peito', 'Costas', 'Ombros', 'Deltoide anterior', 'Deltoide lateral', 'Deltoide posterior',
+  'Peito', 'Dorsais', 'Superior Costas', 'Ombros', 'Deltoide anterior', 'Deltoide lateral', 'Deltoide posterior',
   'Bíceps', 'Tríceps', 'Antebraço', 'Trapézio',
-  'Quadríceps', 'Posterior de coxa', 'Glúteo', 'Glúteo médio', 'Panturrilha',
+  'Quadríceps', 'Posterior de coxa', 'Glúteo', 'Glúteo médio', 'Adutores', 'Panturrilha',
   'Core', 'Cardio', 'Funcional',
 ]
 

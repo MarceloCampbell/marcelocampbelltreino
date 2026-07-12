@@ -39,6 +39,7 @@ type Sessao = {
   nome: string
   tipo: string
   dia_letra: string | null
+  dia_semana_numero: number | null
   data: string | null
   status: string
   duracao_min: number | null
@@ -122,7 +123,7 @@ function VideoThumbnail({ url, nome }: { url: string; nome: string }) {
   )
 }
 
-function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao, pse, setPse, dor, setDor, obs, setObs, savingFb, onEnviarFeedback, substitutoAberto, setSubstitutoAberto }: {
+function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao, pse, setPse, dor, setDor, obs, setObs, savingFb, onEnviarFeedback, substitutoAberto, setSubstitutoAberto, semanaAtual }: {
   sessao: Sessao
   highlight: boolean
   completing: string | null
@@ -135,6 +136,7 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   onEnviarFeedback: (id: string) => void
   substitutoAberto: string | null
   setSubstitutoAberto: (id: string | null) => void
+  semanaAtual?: number
 }) {
   const [isOpen, setIsOpen] = useState(highlight)
   const isRealizado = sessao.status === 'realizado'
@@ -183,42 +185,31 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
               return (
                 <div key={item.id} className="bg-background rounded-xl overflow-hidden">
                   <div className="flex items-start gap-4 p-4">
-                    <div className="w-8 h-8 bg-primary/10 rounded-lg flex items-center justify-center text-[10px] font-extrabold text-primary flex-shrink-0">
-                      {ex?.grupo_muscular?.slice(0, 2).toUpperCase() ?? '??'}
-                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-secondary">{showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}</p>
                       {showSubstituto && <p className="text-xs text-orange-600 font-semibold">Exercício substituto</p>}
-                      <div className="flex flex-wrap gap-2 mt-1">
+                      <div className="flex flex-wrap gap-1.5 mt-1">
                         {item.periodizacao_semanal?.length > 0 ? (() => {
                           const semanas: any[] = item.periodizacao_semanal
+                          const s = semanaAtual
+                            ? (semanas.find((p: any) => p.semana === semanaAtual) ?? semanas[0])
+                            : semanas[0]
+                          if (!s) return null
                           return (
-                            <div className="overflow-x-auto w-full">
-                              <table className="text-xs border-collapse mt-1">
-                                <thead>
-                                  <tr>
-                                    <th className="pr-3 text-outline text-left font-semibold"></th>
-                                    {semanas.map((p: any) => <th key={p.semana} className="px-2 text-outline font-semibold text-center">S{p.semana}</th>)}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(['series', 'repeticoes', 'carga_kg'] as const).map(f => (
-                                    <tr key={f}>
-                                      <td className="pr-3 text-outline">{f === 'carga_kg' ? 'Carga' : f === 'series' ? 'Séries' : 'Reps'}</td>
-                                      {semanas.map((p: any) => <td key={p.semana} className="px-2 text-center text-secondary font-medium">{p[f] || '–'}</td>)}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
+                            <>
+                              {s.series && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{s.series} séries</span>}
+                              {s.repeticoes && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{s.repeticoes} reps</span>}
+                              {s.carga_kg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{s.carga_kg}kg</span>}
+                              {item.descanso_seg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-outline">{item.descanso_seg}s</span>}
+                            </>
                           )
                         })() : (
-                          <div className="flex flex-wrap gap-2 text-xs text-secondary">
-                            {item.series && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded">{item.series} séries</span>}
-                            {item.repeticoes && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded">{item.repeticoes} reps</span>}
-                            {item.carga_kg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded">{item.carga_kg}kg</span>}
-                            {item.descanso_seg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded">{item.descanso_seg}s descanso</span>}
-                          </div>
+                          <>
+                            {item.series && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{item.series} séries</span>}
+                            {item.repeticoes && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{item.repeticoes} reps</span>}
+                            {item.carga_kg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{item.carga_kg}kg</span>}
+                            {item.descanso_seg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-outline">{item.descanso_seg}s</span>}
+                          </>
                         )}
                       </div>
                       {item.observacoes && <p className="text-xs text-primary mt-1">💡 {item.observacoes}</p>}
@@ -306,14 +297,17 @@ export function TreinoAlunoClient({
   const [substitutoAberto, setSubstitutoAberto] = useState<string | null>(null)
   const [showConcluidos, setShowConcluidos] = useState(false)
 
-  const pendentes = sessoes.filter(s => s.status === 'pendente')
-  const concluidas = sessoes.filter(s => s.status === 'realizado')
+  const musculacaoPendentes = sessoes.filter(s => s.status === 'pendente' && s.tipo !== 'aerobico')
+  const concluidas = sessoes.filter(s => s.status === 'realizado' && s.tipo !== 'aerobico')
   const aerobicosPendentes = aerobicos.filter(a => a.status === 'pendente')
   const semanaInfo = cicloAtivo ? calcSemanaAtual(cicloAtivo.data_inicio, cicloAtivo.data_fim) : null
   const faseInfo = semanaInfo ? MC_FASES[semanaInfo.semana - 1] ?? null : null
 
-  const treinoHoje = pendentes[0] ?? null
-  const outrosTreinos = pendentes.slice(1)
+  const hoje = new Date().getDay()
+  const treinoHoje = musculacaoPendentes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje)
+    ?? musculacaoPendentes[0]
+    ?? null
+  const outrosTreinos = musculacaoPendentes.filter(s => s.id !== treinoHoje?.id)
 
   const hora = new Date().getHours()
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
@@ -348,6 +342,7 @@ export function TreinoAlunoClient({
     pse, setPse, dor, setDor, obs, setObs, savingFb,
     onEnviarFeedback: enviarFeedback,
     substitutoAberto, setSubstitutoAberto,
+    semanaAtual: semanaInfo?.semana,
   }
 
   if (sessoes.length === 0 && aerobicos.length === 0) {
