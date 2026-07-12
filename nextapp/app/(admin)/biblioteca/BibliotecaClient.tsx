@@ -32,8 +32,109 @@ const GRUPOS = [
 
 function getYoutubeId(url: string | null): string | null {
   if (!url) return null
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/)
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([^&?\s/]+)/)
   return m ? m[1] : null
+}
+
+function ExercicioForm({ f, setF, allExercicios, excludeId }: {
+  f: FormState
+  setF: (fn: (p: FormState) => FormState) => void
+  allExercicios: Exercicio[]
+  excludeId?: string
+}) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label className="label">Nome *</label>
+        <input className="input" placeholder="Ex: Supino Reto com Barra" value={f.nome} onChange={e => setF(p => ({ ...p, nome: e.target.value }))} />
+      </div>
+      <div>
+        <label className="label">Grupo Muscular *</label>
+        <input list="grupos-list" className="input" placeholder="Ex: Peito" value={f.grupo_muscular} onChange={e => setF(p => ({ ...p, grupo_muscular: e.target.value, musculo_primario: p.musculo_primario || e.target.value }))} />
+        <datalist id="grupos-list">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
+      </div>
+      <div>
+        <label className="label">Categoria</label>
+        <select className="input" value={f.categoria} onChange={e => setF(p => ({ ...p, categoria: e.target.value }))}>
+          <option value="musculacao">Musculação</option>
+          <option value="cardio">Cardio</option>
+          <option value="funcional">Funcional</option>
+          <option value="mobilidade">Mobilidade</option>
+        </select>
+      </div>
+      <div>
+        <label className="label">Equipamento</label>
+        <input className="input" placeholder="Ex: Barra, Halter 20kg" value={f.equipamento} onChange={e => setF(p => ({ ...p, equipamento: e.target.value }))} />
+      </div>
+      <div>
+        <label className="label">URL do Vídeo</label>
+        <input className="input" placeholder="https://youtube.com/..." value={f.video_url} onChange={e => setF(p => ({ ...p, video_url: e.target.value }))} />
+      </div>
+      <div>
+        <label className="label">Erros Comuns</label>
+        <input className="input" placeholder="Ex: colocar as mãos muito fechadas" value={f.erros_comuns} onChange={e => setF(p => ({ ...p, erros_comuns: e.target.value }))} />
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label">Instruções de Execução</label>
+        <textarea className="input min-h-[80px]" placeholder="Passo a passo da execução correta..." value={f.instrucoes} onChange={e => setF(p => ({ ...p, instrucoes: e.target.value }))} />
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label">Exercício Substituto</label>
+        <select className="input" value={f.exercicio_substituto_id} onChange={e => setF(p => ({ ...p, exercicio_substituto_id: e.target.value }))}>
+          <option value="">— Nenhum —</option>
+          {[...allExercicios].filter(e => e.id !== excludeId).sort((a, b) => a.nome.localeCompare(b.nome)).map(ex => (
+            <option key={ex.id} value={ex.id}>{ex.nome} ({ex.grupo_muscular})</option>
+          ))}
+        </select>
+      </div>
+      <div className="sm:col-span-2 border border-outline-variant rounded-lg p-3 space-y-3">
+        <p className="text-xs font-semibold text-outline uppercase tracking-wider">Músculos trabalhados (para relatório de volume)</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="label">Músculo Primário (1 série)</label>
+            <input list="grupos-list-pri" className="input" placeholder="Ex: Peito" value={f.musculo_primario} onChange={e => setF(p => ({ ...p, musculo_primario: e.target.value }))} />
+            <datalist id="grupos-list-pri">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
+          </div>
+          <div>
+            <label className="label">Músculo Secundário</label>
+            <input list="grupos-list-sec" className="input" placeholder="Ex: Deltoide anterior" value={f.musculo_secundario} onChange={e => setF(p => ({ ...p, musculo_secundario: e.target.value }))} />
+            <datalist id="grupos-list-sec">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
+          </div>
+          <div>
+            <label className="label">Músculo Terciário</label>
+            <input list="grupos-list-ter" className="input" placeholder="Ex: Tríceps" value={f.musculo_terciario} onChange={e => setF(p => ({ ...p, musculo_terciario: e.target.value }))} />
+            <datalist id="grupos-list-ter">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
+          </div>
+        </div>
+        {(f.musculo_secundario || f.musculo_terciario) && (
+          <div className="grid grid-cols-2 gap-3">
+            {f.musculo_secundario && (
+              <div>
+                <label className="label">Peso séries — {f.musculo_secundario}</label>
+                <select className="input" value={f.series_secundario} onChange={e => setF(p => ({ ...p, series_secundario: e.target.value }))}>
+                  <option value="0.25">0,25 séries</option>
+                  <option value="0.5">0,5 séries</option>
+                  <option value="0.75">0,75 séries</option>
+                  <option value="1">1 série</option>
+                </select>
+              </div>
+            )}
+            {f.musculo_terciario && (
+              <div>
+                <label className="label">Peso séries — {f.musculo_terciario}</label>
+                <select className="input" value={f.series_terciario} onChange={e => setF(p => ({ ...p, series_terciario: e.target.value }))}>
+                  <option value="0.25">0,25 séries</option>
+                  <option value="0.5">0,5 séries</option>
+                  <option value="0.75">0,75 séries</option>
+                  <option value="1">1 série</option>
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 type FormState = {
@@ -147,108 +248,6 @@ export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercici
       setExercicios(prev => prev.filter(e => e.id !== id))
       if (expanded === id) setExpanded(null)
     }
-  }
-
-  function ExercicioForm({ f, setF, allExercicios, excludeId }: {
-    f: FormState
-    setF: (fn: (p: FormState) => FormState) => void
-    allExercicios: Exercicio[]
-    excludeId?: string
-  }) {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="label">Nome *</label>
-          <input className="input" placeholder="Ex: Supino Reto com Barra" value={f.nome} onChange={e => setF(p => ({ ...p, nome: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">Grupo Muscular *</label>
-          <input list="grupos-list" className="input" placeholder="Ex: Peito" value={f.grupo_muscular} onChange={e => setF(p => ({ ...p, grupo_muscular: e.target.value, musculo_primario: p.musculo_primario || e.target.value }))} />
-          <datalist id="grupos-list">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
-        </div>
-        <div>
-          <label className="label">Categoria</label>
-          <select className="input" value={f.categoria} onChange={e => setF(p => ({ ...p, categoria: e.target.value }))}>
-            <option value="musculacao">Musculação</option>
-            <option value="cardio">Cardio</option>
-            <option value="funcional">Funcional</option>
-            <option value="mobilidade">Mobilidade</option>
-          </select>
-        </div>
-        <div>
-          <label className="label">Equipamento</label>
-          <input className="input" placeholder="Ex: Barra, Halter 20kg" value={f.equipamento} onChange={e => setF(p => ({ ...p, equipamento: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">URL do Vídeo</label>
-          <input className="input" placeholder="https://youtube.com/..." value={f.video_url} onChange={e => setF(p => ({ ...p, video_url: e.target.value }))} />
-        </div>
-        <div>
-          <label className="label">Erros Comuns</label>
-          <input className="input" placeholder="Ex: colocar as mãos muito fechadas" value={f.erros_comuns} onChange={e => setF(p => ({ ...p, erros_comuns: e.target.value }))} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label">Instruções de Execução</label>
-          <textarea className="input min-h-[80px]" placeholder="Passo a passo da execução correta..." value={f.instrucoes} onChange={e => setF(p => ({ ...p, instrucoes: e.target.value }))} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className="label">Exercício Substituto</label>
-          <select className="input" value={f.exercicio_substituto_id} onChange={e => setF(p => ({ ...p, exercicio_substituto_id: e.target.value }))}>
-            <option value="">— Nenhum —</option>
-            {[...allExercicios].filter(e => e.id !== excludeId).sort((a, b) => a.nome.localeCompare(b.nome)).map(ex => (
-              <option key={ex.id} value={ex.id}>{ex.nome} ({ex.grupo_muscular})</option>
-            ))}
-          </select>
-        </div>
-        {/* Muscle volume tracking */}
-        <div className="sm:col-span-2 border border-outline-variant rounded-lg p-3 space-y-3">
-          <p className="text-xs font-semibold text-outline uppercase tracking-wider">Músculos trabalhados (para relatório de volume)</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="label">Músculo Primário (1 série)</label>
-              <input list="grupos-list-pri" className="input" placeholder="Ex: Peito" value={f.musculo_primario} onChange={e => setF(p => ({ ...p, musculo_primario: e.target.value }))} />
-              <datalist id="grupos-list-pri">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
-            </div>
-            <div>
-              <label className="label">Músculo Secundário</label>
-              <input list="grupos-list-sec" className="input" placeholder="Ex: Deltoide anterior" value={f.musculo_secundario} onChange={e => setF(p => ({ ...p, musculo_secundario: e.target.value }))} />
-              <datalist id="grupos-list-sec">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
-            </div>
-            <div>
-              <label className="label">Músculo Terciário</label>
-              <input list="grupos-list-ter" className="input" placeholder="Ex: Tríceps" value={f.musculo_terciario} onChange={e => setF(p => ({ ...p, musculo_terciario: e.target.value }))} />
-              <datalist id="grupos-list-ter">{GRUPOS.map(g => <option key={g} value={g} />)}</datalist>
-            </div>
-          </div>
-          {(f.musculo_secundario || f.musculo_terciario) && (
-            <div className="grid grid-cols-2 gap-3">
-              {f.musculo_secundario && (
-                <div>
-                  <label className="label">Peso séries — {f.musculo_secundario}</label>
-                  <select className="input" value={f.series_secundario} onChange={e => setF(p => ({ ...p, series_secundario: e.target.value }))}>
-                    <option value="0.25">0,25 séries</option>
-                    <option value="0.5">0,5 séries</option>
-                    <option value="0.75">0,75 séries</option>
-                    <option value="1">1 série</option>
-                  </select>
-                </div>
-              )}
-              {f.musculo_terciario && (
-                <div>
-                  <label className="label">Peso séries — {f.musculo_terciario}</label>
-                  <select className="input" value={f.series_terciario} onChange={e => setF(p => ({ ...p, series_terciario: e.target.value }))}>
-                    <option value="0.25">0,25 séries</option>
-                    <option value="0.5">0,5 séries</option>
-                    <option value="0.75">0,75 séries</option>
-                    <option value="1">1 série</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    )
   }
 
   return (

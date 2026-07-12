@@ -81,6 +81,21 @@ type ItemForm = {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
+const MC_MODELO: { series: string; repeticoes: string; fase: string; missao: string; mensagem: string }[] = [
+  { series: '3', repeticoes: '10-12', fase: 'Adaptação Técnica', missao: 'Encontrar a carga ideal para cada exercício, registrar suas primeiras cargas e aprender a execução perfeita.', mensagem: 'Semana de Adaptação Técnica. Aproveite para encontrar a carga ideal, aprender a execução correta dos exercícios e registrar suas primeiras cargas. A prioridade é qualidade, não peso.' },
+  { series: '3', repeticoes: '10-12', fase: 'Consolidação', missao: 'Melhorar a qualidade dos movimentos e tentar pequenas progressões de carga ou repetições.', mensagem: 'Semana de Consolidação. Agora que você já conhece os exercícios, tente melhorar sua execução e, se possível, aumentar algumas repetições ou pequenas cargas mantendo a técnica.' },
+  { series: '3', repeticoes: '8-10', fase: 'Progressão', missao: 'Evoluir as cargas nos exercícios principais mantendo a técnica.', mensagem: 'Semana de Progressão. Hora de começar a evoluir as cargas nos exercícios principais. Busque desafiar seu corpo sem comprometer a execução.' },
+  { series: '3', repeticoes: '8-10', fase: 'Estabilidade', missao: 'Consolidar as novas cargas e repetir boas execuções.', mensagem: 'Semana de Estabilidade. Mantenha as cargas conquistadas na semana passada e foque em executar todas as séries com qualidade e consistência.' },
+  { series: '3', repeticoes: '12-15', fase: 'Volume', missao: 'Buscar maior controle muscular e mais repetições, sem pressa para aumentar a carga.', mensagem: 'Semana de Volume. Reduza um pouco a carga e aumente o número de repetições. O objetivo é melhorar o controle, a conexão muscular e a resistência.' },
+  { series: '3', repeticoes: '7-9', fase: 'Intensidade', missao: 'Retomar cargas elevadas e bater novos recordes com segurança.', mensagem: 'Semana de Intensidade. Voltamos a trabalhar com cargas mais altas. Tente superar seus números anteriores mantendo boa técnica.' },
+  { series: '4', repeticoes: '7-9', fase: 'Expansão', missao: 'Suportar um volume maior de treino mantendo a qualidade.', mensagem: 'Semana de Expansão. Agora teremos uma série extra nos principais exercícios. O desafio é manter ou evoluir as cargas da semana anterior sem perder qualidade.' },
+  { series: '4', repeticoes: '6-8', fase: 'Força', missao: 'Trabalhar pesado, mantendo foco total na execução.', mensagem: 'Semana de Força. Este é um dos blocos mais intensos do ciclo. Trabalhe com cargas elevadas e máxima concentração em cada repetição.' },
+  { series: '4', repeticoes: '6-8', fase: 'Performance', missao: 'Entregar sua melhor semana do ciclo.', mensagem: 'Semana de Performance. Busque sua melhor performance do ciclo. Mantenha ou evolua as cargas da semana passada e execute cada série com excelência.' },
+  { series: '3', repeticoes: '8-10', fase: 'Refinamento', missao: 'Recuperar um pouco do volume sem perder desempenho.', mensagem: 'Semana de Refinamento. Reduzimos um pouco o volume para recuperar energia, mas mantendo as cargas conquistadas. O foco é preservar a performance.' },
+  { series: '3', repeticoes: '12-15', fase: 'Recuperação Ativa', missao: 'Recuperar seu corpo, aperfeiçoar a técnica e preparar-se para o próximo ciclo.', mensagem: 'Semana de Recuperação Ativa. Diminua a intensidade e priorize técnica, amplitude e controle dos movimentos. Essa semana prepara seu corpo para iniciar um novo ciclo ainda mais forte.' },
+  { series: '3', repeticoes: '8-10', fase: 'Fechamento', missao: 'Avaliar sua evolução, celebrar suas conquistas e iniciar o próximo ciclo ainda melhor.', mensagem: 'Semana de Fechamento do Ciclo. Compare sua evolução com o início do programa, registre suas conquistas e prepare-se para iniciar um novo ciclo em um nível ainda mais alto.' },
+]
+
 const TABS = ['Treinos', 'Dados', 'Ficha Saúde', 'Anotações', 'Feedbacks', 'Pontuação / Evolução']
 const DIA_LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 const DIAS_SEMANA = [
@@ -116,7 +131,10 @@ function calcNumSemanas(rotina: Rotina | null): number {
 }
 
 function buildPeriodizacao(n: number): SemanaItem[] {
-  return Array.from({ length: n }, (_, i) => ({ semana: i + 1, series: '3', repeticoes: '10-12', carga_kg: '' }))
+  return Array.from({ length: n }, (_, i) => {
+    const m = MC_MODELO[i]
+    return { semana: i + 1, series: m?.series ?? '3', repeticoes: m?.repeticoes ?? '10-12', carga_kg: '' }
+  })
 }
 
 const statusLabel = (s: string) => {
@@ -205,6 +223,15 @@ export function GestaoAlunoClient({
     tipo: 'musculacao', visivel_antes_de_iniciar: true, ocultar_ao_vencer: false,
   })
   const [savingRotina, setSavingRotina] = useState(false)
+  const [editingRotina, setEditingRotina] = useState(false)
+  const [editRotinaForm, setEditRotinaForm] = useState({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '' })
+  const [savingEditRotina, setSavingEditRotina] = useState(false)
+
+  // ── Edit sessao item inline
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editItemPeriod, setEditItemPeriod] = useState<SemanaItem[]>([])
+  const [editItemObs, setEditItemObs] = useState('')
+  const [savingItem, setSavingItem] = useState(false)
 
   // ── Novo dia de treino (inside selected rotina)
   const [novaDia, setNovaDia] = useState({
@@ -319,6 +346,84 @@ export function GestaoAlunoClient({
       setNovaRotina({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '', tipo: 'musculacao', visivel_antes_de_iniciar: true, ocultar_ao_vencer: false })
     }
     setSavingRotina(false)
+  }
+
+  async function saveEditRotina() {
+    if (!selectedRotina || !editRotinaForm.nome.trim()) return
+    setSavingEditRotina(true)
+    const { data } = await supabase.from('ciclos').update({
+      nome: editRotinaForm.nome.trim(),
+      objetivo: editRotinaForm.objetivo || null,
+      orientacoes: editRotinaForm.orientacoes || null,
+      data_inicio: editRotinaForm.data_inicio || null,
+      data_fim: editRotinaForm.data_fim || null,
+    }).eq('id', selectedRotina.id).select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))').single()
+    if (data) {
+      const updated = data as unknown as Rotina
+      setSelectedRotina(updated)
+      setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updated : c))
+      setNumSemanas(calcNumSemanas(updated))
+    }
+    setEditingRotina(false)
+    setSavingEditRotina(false)
+  }
+
+  function startEditItem(item: SessaoItem) {
+    const period: SemanaItem[] = item.periodizacao_semanal?.length > 0
+      ? item.periodizacao_semanal
+      : [{ semana: 1, series: String(item.series ?? '3'), repeticoes: item.repeticoes ?? '10-12', carga_kg: String(item.carga_kg ?? '') }]
+    setEditingItemId(item.id)
+    setEditItemPeriod(period)
+    setEditItemObs(item.observacoes ?? '')
+  }
+
+  async function saveEditItem(sessaoId: string, itemId: string) {
+    setSavingItem(true)
+    await supabase.from('sessao_itens').update({
+      series: parseInt(editItemPeriod[0]?.series) || null,
+      repeticoes: editItemPeriod[0]?.repeticoes || null,
+      carga_kg: parseFloat(editItemPeriod[0]?.carga_kg) || null,
+      observacoes: editItemObs || null,
+      periodizacao_semanal: editItemPeriod,
+    }).eq('id', itemId)
+    // refresh rotina
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina!.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+    setEditingItemId(null)
+    setSavingItem(false)
+  }
+
+  async function deleteItem(sessaoId: string, itemId: string) {
+    if (!confirm('Remover este exercício do treino?')) return
+    await supabase.from('sessao_itens').delete().eq('id', itemId)
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina!.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+  }
+
+  async function deleteSessao(sessaoId: string) {
+    if (!confirm('Excluir este dia de treino? Todos os exercícios serão removidos.')) return
+    await supabase.from('sessao_itens').delete().eq('sessao_id', sessaoId)
+    await supabase.from('sessoes_treino').delete().eq('id', sessaoId)
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina!.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
   }
 
   async function arquivarRotina(id: string) {
@@ -759,27 +864,85 @@ export function GestaoAlunoClient({
 
               {/* Rotina info card */}
               <div className="card mb-4">
-                <div className="flex items-start justify-between gap-3">
+                {editingRotina ? (
                   <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedRotina.tipo === 'aerobico' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
-                        {selectedRotina.tipo === 'aerobico' ? 'Aeróbico' : 'Musculação'}
-                      </span>
-                      <h3 className="font-extrabold text-secondary text-lg">{selectedRotina.nome}</h3>
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="font-extrabold text-secondary">Editar Rotina</h3>
+                      <button onClick={() => setEditingRotina(false)} className="text-outline hover:text-secondary"><X size={16} /></button>
                     </div>
-                    {selectedRotina.objetivo && <p className="text-sm text-secondary mt-1">Objetivo: {selectedRotina.objetivo}</p>}
-                    {selectedRotina.data_inicio && selectedRotina.data_fim && (
-                      <p className="text-xs text-outline mt-1">
-                        {new Date(selectedRotina.data_inicio + 'T00:00').toLocaleDateString('pt-BR')} → {new Date(selectedRotina.data_fim + 'T00:00').toLocaleDateString('pt-BR')}
-                        {' · '}{calcDuracao(selectedRotina.data_inicio, selectedRotina.data_fim)}
-                        {' · '}<span className="font-semibold text-primary">{numSemanas} semanas</span>
-                      </p>
-                    )}
-                    {selectedRotina.orientacoes && (
-                      <p className="text-xs text-outline mt-1 italic">&quot;{selectedRotina.orientacoes}&quot;</p>
-                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="sm:col-span-2">
+                        <label className="label">Nome *</label>
+                        <input className="input" value={editRotinaForm.nome} onChange={e => setEditRotinaForm(p => ({ ...p, nome: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="label">Objetivo</label>
+                        <input className="input" value={editRotinaForm.objetivo} onChange={e => setEditRotinaForm(p => ({ ...p, objetivo: e.target.value }))} />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="label">Orientações para o aluno</label>
+                        <textarea className="input min-h-[60px]" value={editRotinaForm.orientacoes} onChange={e => setEditRotinaForm(p => ({ ...p, orientacoes: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="label">Data início</label>
+                        <input type="date" className="input" value={editRotinaForm.data_inicio} onChange={e => setEditRotinaForm(p => ({ ...p, data_inicio: e.target.value }))} />
+                      </div>
+                      <div>
+                        <label className="label">
+                          Data término
+                          {editRotinaForm.data_inicio && editRotinaForm.data_fim && (
+                            <span className="ml-2 text-primary font-semibold">{calcDuracao(editRotinaForm.data_inicio, editRotinaForm.data_fim)}</span>
+                          )}
+                        </label>
+                        <input type="date" className="input" value={editRotinaForm.data_fim} onChange={e => setEditRotinaForm(p => ({ ...p, data_fim: e.target.value }))} />
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mt-3">
+                      <button onClick={saveEditRotina} disabled={savingEditRotina || !editRotinaForm.nome.trim()} className="btn-primary text-sm px-5">
+                        {savingEditRotina ? 'Salvando...' : 'Salvar'}
+                      </button>
+                      <button onClick={() => setEditingRotina(false)} className="btn-ghost text-sm">Cancelar</button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${selectedRotina.tipo === 'aerobico' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                          {selectedRotina.tipo === 'aerobico' ? 'Aeróbico' : 'Musculação'}
+                        </span>
+                        <h3 className="font-extrabold text-secondary text-lg">{selectedRotina.nome}</h3>
+                      </div>
+                      {selectedRotina.objetivo && <p className="text-sm text-secondary mt-1">Objetivo: {selectedRotina.objetivo}</p>}
+                      {selectedRotina.data_inicio && selectedRotina.data_fim && (
+                        <p className="text-xs text-outline mt-1">
+                          {new Date(selectedRotina.data_inicio + 'T00:00').toLocaleDateString('pt-BR')} → {new Date(selectedRotina.data_fim + 'T00:00').toLocaleDateString('pt-BR')}
+                          {' · '}{calcDuracao(selectedRotina.data_inicio, selectedRotina.data_fim)}
+                          {' · '}<span className="font-semibold text-primary">{numSemanas} semanas</span>
+                        </p>
+                      )}
+                      {selectedRotina.orientacoes && (
+                        <p className="text-xs text-outline mt-1 italic">&quot;{selectedRotina.orientacoes}&quot;</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditRotinaForm({
+                          nome: selectedRotina.nome,
+                          objetivo: selectedRotina.objetivo ?? '',
+                          orientacoes: selectedRotina.orientacoes ?? '',
+                          data_inicio: selectedRotina.data_inicio ?? '',
+                          data_fim: selectedRotina.data_fim ?? '',
+                        })
+                        setEditingRotina(true)
+                      }}
+                      className="p-1.5 rounded text-outline hover:text-primary hover:bg-gray-100 transition-colors flex-shrink-0"
+                      title="Editar rotina"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Volume report (collapsible) */}
@@ -893,6 +1056,14 @@ export function GestaoAlunoClient({
                             {s.orientacoes_aluno && ` · ${s.orientacoes_aluno.slice(0, 40)}...`}
                           </p>
                         </div>
+                        {/* Delete sessao */}
+                        <button
+                          onClick={() => deleteSessao(s.id)}
+                          className="p-1.5 rounded text-outline hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                          title="Excluir treino"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                         {/* Reorder arrows */}
                         <div className="flex flex-col gap-0.5 flex-shrink-0">
                           <button
@@ -918,45 +1089,106 @@ export function GestaoAlunoClient({
                         <div className="mt-3 pt-3 border-t border-outline-variant space-y-2">
                           {s.sessao_itens.map((item, iIdx) => {
                             const pSemanas: SemanaItem[] = item.periodizacao_semanal ?? []
+                            const isEditingThis = editingItemId === item.id
                             return (
                               <div key={item.id} className="text-sm">
                                 <div className="flex items-center gap-2 mb-1">
                                   <span className="text-xs font-bold text-outline w-5">{iIdx + 1}.</span>
                                   <span className="font-medium text-secondary">{item.exercicio?.nome ?? '–'}</span>
                                   <span className="text-xs text-outline bg-gray-100 px-1.5 py-0.5 rounded">{item.exercicio?.grupo_muscular}</span>
+                                  <div className="ml-auto flex items-center gap-1">
+                                    <button onClick={() => isEditingThis ? setEditingItemId(null) : startEditItem(item)} className={`p-1 rounded text-xs transition-colors ${isEditingThis ? 'text-primary' : 'text-outline hover:text-primary hover:bg-gray-100'}`} title="Editar">
+                                      <Edit2 size={11} />
+                                    </button>
+                                    <button onClick={() => deleteItem(s.id, item.id)} className="p-1 rounded text-outline hover:text-red-500 hover:bg-red-50 transition-colors" title="Remover">
+                                      <Trash2 size={11} />
+                                    </button>
+                                  </div>
                                 </div>
-                                {item.observacoes && (
-                                  <p className="ml-7 text-xs text-primary mb-1">💡 {item.observacoes}</p>
-                                )}
-                                {pSemanas.length > 0 ? (
-                                  <div className="ml-7 overflow-x-auto">
-                                    <table className="text-xs border-collapse">
-                                      <thead>
-                                        <tr>
-                                          <th className="pr-3 py-0.5 text-left text-outline font-semibold"></th>
-                                          {pSemanas.map(p => (
-                                            <th key={p.semana} className="px-2 py-0.5 text-outline font-semibold text-center">S{p.semana}</th>
-                                          ))}
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {(['series', 'repeticoes', 'carga_kg'] as const).map(field => (
-                                          <tr key={field}>
-                                            <td className="pr-3 py-0.5 text-outline capitalize">{field === 'carga_kg' ? 'Carga' : field === 'series' ? 'Séries' : 'Reps'}</td>
-                                            {pSemanas.map(p => (
-                                              <td key={p.semana} className="px-2 py-0.5 text-center text-secondary font-medium">
-                                                {(p as any)[field] || '–'}
-                                              </td>
-                                            ))}
+
+                                {isEditingThis ? (
+                                  <div className="ml-7 bg-background rounded-lg p-3">
+                                    <div className="overflow-x-auto mb-2">
+                                      <table className="w-full text-xs">
+                                        <thead>
+                                          <tr>
+                                            <th className="text-left text-outline pr-2 py-1 w-14"></th>
+                                            {editItemPeriod.map(p => <th key={p.semana} className="text-center text-outline px-1 py-1 min-w-[56px]">S{p.semana}</th>)}
                                           </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
+                                        </thead>
+                                        <tbody>
+                                          {(['series', 'repeticoes', 'carga_kg'] as const).map(field => (
+                                            <tr key={field}>
+                                              <td className="text-outline pr-2 py-0.5">{field === 'carga_kg' ? 'Carga' : field === 'series' ? 'Séries' : 'Reps'}</td>
+                                              {editItemPeriod.map((p, pi) => (
+                                                <td key={p.semana} className="px-1 py-0.5">
+                                                  <input
+                                                    className="w-full text-center border border-outline-variant rounded px-1 py-0.5 text-xs focus:outline-none focus:border-primary"
+                                                    value={(p as any)[field]}
+                                                    onChange={e => setEditItemPeriod(prev => prev.map((x, xi) => xi === pi ? { ...x, [field]: e.target.value } : x))}
+                                                    placeholder="–"
+                                                  />
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                          <tr>
+                                            <td className="text-outline pr-2 py-1">Obs.</td>
+                                            <td colSpan={editItemPeriod.length} className="py-1 px-1">
+                                              <input
+                                                className="w-full border border-outline-variant rounded px-2 py-0.5 text-xs focus:outline-none focus:border-primary"
+                                                value={editItemObs}
+                                                onChange={e => setEditItemObs(e.target.value)}
+                                                placeholder="Observação visível ao aluno..."
+                                              />
+                                            </td>
+                                          </tr>
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button onClick={() => saveEditItem(s.id, item.id)} disabled={savingItem} className="text-xs font-semibold text-white bg-primary px-3 py-1 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
+                                        {savingItem ? '...' : 'Salvar'}
+                                      </button>
+                                      <button onClick={() => setEditingItemId(null)} className="text-xs text-outline hover:text-secondary">Cancelar</button>
+                                    </div>
                                   </div>
                                 ) : (
-                                  <p className="ml-7 text-xs text-outline">
-                                    {item.series && `${item.series}x`}{item.repeticoes && ` ${item.repeticoes}`}{item.carga_kg && ` @ ${item.carga_kg}kg`}
-                                  </p>
+                                  <>
+                                    {item.observacoes && (
+                                      <p className="ml-7 text-xs text-primary mb-1">💡 {item.observacoes}</p>
+                                    )}
+                                    {pSemanas.length > 0 ? (
+                                      <div className="ml-7 overflow-x-auto">
+                                        <table className="text-xs border-collapse">
+                                          <thead>
+                                            <tr>
+                                              <th className="pr-3 py-0.5 text-left text-outline font-semibold"></th>
+                                              {pSemanas.map(p => (
+                                                <th key={p.semana} className="px-2 py-0.5 text-outline font-semibold text-center">S{p.semana}</th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {(['series', 'repeticoes', 'carga_kg'] as const).map(field => (
+                                              <tr key={field}>
+                                                <td className="pr-3 py-0.5 text-outline capitalize">{field === 'carga_kg' ? 'Carga' : field === 'series' ? 'Séries' : 'Reps'}</td>
+                                                {pSemanas.map(p => (
+                                                  <td key={p.semana} className="px-2 py-0.5 text-center text-secondary font-medium">
+                                                    {(p as any)[field] || '–'}
+                                                  </td>
+                                                ))}
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    ) : (
+                                      <p className="ml-7 text-xs text-outline">
+                                        {item.series && `${item.series}x`}{item.repeticoes && ` ${item.repeticoes}`}{item.carga_kg && ` @ ${item.carga_kg}kg`}
+                                      </p>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             )
@@ -1065,7 +1297,10 @@ export function GestaoAlunoClient({
                                     <tr>
                                       <th className="text-left text-outline pr-2 py-1 w-16"></th>
                                       {item.periodizacao.map(p => (
-                                        <th key={p.semana} className="text-center text-outline px-1 py-1 min-w-[60px]">S{p.semana}</th>
+                                        <th key={p.semana} className="text-center text-outline px-1 py-1 min-w-[60px]">
+                                          <div>S{p.semana}</div>
+                                          {MC_MODELO[p.semana - 1] && <div className="text-[9px] font-normal opacity-60 leading-tight">{MC_MODELO[p.semana - 1].fase}</div>}
+                                        </th>
                                       ))}
                                     </tr>
                                   </thead>
@@ -1202,10 +1437,11 @@ export function GestaoAlunoClient({
                   <label className="label">Plano</label>
                   <select className="input" value={dadosForm.plano_contratado} onChange={e => setDadosForm(p => ({ ...p, plano_contratado: e.target.value }))}>
                     <option value="">Selecione...</option>
-                    <option value="ALUNO BÁSICO">ALUNO BÁSICO</option>
-                    <option value="ALUNO PREMIUM">ALUNO PREMIUM</option>
-                    <option value="CONSULTORIA BÁSICA">CONSULTORIA BÁSICA</option>
-                    <option value="CONSULTORIA PREMIUM">CONSULTORIA PREMIUM</option>
+                    <option value="Trimestral">Trimestral</option>
+                    <option value="Semestral">Semestral</option>
+                    <option value="Semi-presencial">Semi-presencial</option>
+                    <option value="Presencial">Presencial</option>
+                    <option value="Família">Família</option>
                   </select>
                 </div>
                 <div>

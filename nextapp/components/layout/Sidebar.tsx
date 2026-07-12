@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users, Dumbbell, Building2, Megaphone,
   Gift, Settings, LogOut, ChevronRight, Menu, X
@@ -14,6 +14,7 @@ import type { Usuario } from '@/types/database'
 
 interface SidebarProps {
   usuario: Usuario
+  totalFeed?: number
 }
 
 const adminLinks = [
@@ -35,13 +36,25 @@ const alunoLinks = [
   { href: '/configuracoes', icon: Settings, label: 'Configurações' },
 ]
 
-export function Sidebar({ usuario }: SidebarProps) {
+export function Sidebar({ usuario, totalFeed = 0 }: SidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
   const isAdmin = usuario.papel === 'admin' || usuario.papel === 'assistente'
   const links = isAdmin ? adminLinks : alunoLinks
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [seenFeed, setSeenFeed] = useState(totalFeed)
+
+  useEffect(() => {
+    const stored = parseInt(localStorage.getItem('mc_feed_seen') ?? '0')
+    setSeenFeed(stored)
+    if (pathname === '/feed') {
+      localStorage.setItem('mc_feed_seen', String(totalFeed))
+      setSeenFeed(totalFeed)
+    }
+  }, [pathname, totalFeed])
+
+  const feedBadge = Math.max(0, totalFeed - seenFeed)
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -88,6 +101,8 @@ export function Sidebar({ usuario }: SidebarProps) {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {links.map(({ href, icon: Icon, label }) => {
             const active = pathname === href || pathname.startsWith(href + '/')
+            const isFeed = href === '/feed'
+            const showBadge = isFeed && feedBadge > 0 && !isAdmin
             return (
               <Link
                 key={href}
@@ -95,7 +110,14 @@ export function Sidebar({ usuario }: SidebarProps) {
                 onClick={() => setMobileOpen(false)}
                 className={`sidebar-link ${active ? 'sidebar-link-active' : ''}`}
               >
-                <Icon size={18} strokeWidth={active ? 2.5 : 2} />
+                <div className="relative flex-shrink-0">
+                  <Icon size={18} strokeWidth={active ? 2.5 : 2} />
+                  {showBadge && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                      {feedBadge > 9 ? '9+' : feedBadge}
+                    </span>
+                  )}
+                </div>
                 <span>{label}</span>
                 {active && <ChevronRight size={14} className="ml-auto" />}
               </Link>

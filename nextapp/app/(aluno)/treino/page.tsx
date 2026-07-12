@@ -14,6 +14,15 @@ export default async function TreinoAlunoPage() {
   const { data: aluno } = await supabase.from('alunos').select('id').eq('usuario_id', usuario.id).single()
   if (!aluno) return <div className="p-6 text-center text-outline">Perfil de aluno não encontrado. Entre em contato com seu treinador.</div>
 
+  const cicloAtivoRes = await supabase
+    .from('ciclos')
+    .select('id, nome, data_inicio, data_fim, status')
+    .eq('aluno_id', aluno.id)
+    .in('status', ['ativo', 'planejado'])
+    .order('data_inicio', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const [sessoesRes, aerobicosRes] = await Promise.all([
     supabase
       .from('sessoes_treino')
@@ -48,6 +57,7 @@ export default async function TreinoAlunoPage() {
           nomeAluno={usuario.nome}
           sessoes={sessoesRes.data ?? []}
           aerobicos={aerobicosRes.data ?? []}
+          cicloAtivo={cicloAtivoRes.data ?? null}
         />
       </div>
     </>

@@ -59,9 +59,38 @@ type AerobicoBrief = {
   data_prevista: string | null
 }
 
+const MC_FASES = [
+  { fase: 'Adaptação Técnica', series: '3×10–12', missao: 'Encontrar a carga ideal para cada exercício, registrar suas primeiras cargas e aprender a execução perfeita.' },
+  { fase: 'Consolidação', series: '3×10–12', missao: 'Melhorar a qualidade dos movimentos e tentar pequenas progressões de carga ou repetições.' },
+  { fase: 'Progressão', series: '3×8–10', missao: 'Evoluir as cargas nos exercícios principais mantendo a técnica.' },
+  { fase: 'Estabilidade', series: '3×8–10', missao: 'Consolidar as novas cargas e repetir boas execuções.' },
+  { fase: 'Volume', series: '3×12–15', missao: 'Buscar maior controle muscular e mais repetições, sem pressa para aumentar a carga.' },
+  { fase: 'Intensidade', series: '3×7–9', missao: 'Retomar cargas elevadas e bater novos recordes com segurança.' },
+  { fase: 'Expansão', series: '4×7–9', missao: 'Suportar um volume maior de treino mantendo a qualidade.' },
+  { fase: 'Força', series: '4×6–8', missao: 'Trabalhar pesado, mantendo foco total na execução.' },
+  { fase: 'Performance', series: '4×6–8', missao: 'Entregar sua melhor semana do ciclo.' },
+  { fase: 'Refinamento', series: '3×8–10', missao: 'Recuperar um pouco do volume sem perder desempenho.' },
+  { fase: 'Recuperação Ativa', series: '3×12–15', missao: 'Recuperar seu corpo, aperfeiçoar a técnica e preparar-se para o próximo ciclo.' },
+  { fase: 'Fechamento', series: '3×8–10', missao: 'Avaliar sua evolução, celebrar suas conquistas e iniciar o próximo ciclo ainda melhor.' },
+]
+
+function calcSemanaAtual(dataInicio: string | null, dataFim: string | null): { semana: number; total: number } | null {
+  if (!dataInicio) return null
+  const inicio = new Date(dataInicio + 'T00:00')
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+  const dias = Math.floor((hoje.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24))
+  if (dias < 0) return null
+  const semana = Math.floor(dias / 7) + 1
+  const total = dataFim
+    ? Math.max(semana, Math.ceil((new Date(dataFim + 'T00:00').getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24 * 7)))
+    : semana
+  return { semana: Math.min(semana, total), total }
+}
+
 function extractYoutubeId(url: string | null): string | null {
   if (!url) return null
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/)
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([^&?\s/]+)/)
   return m ? m[1] : null
 }
 
@@ -251,16 +280,20 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   )
 }
 
+type CicloAtivo = { id: string; nome: string; data_inicio: string | null; data_fim: string | null; status: string } | null
+
 export function TreinoAlunoClient({
   alunoId,
   nomeAluno,
   sessoes,
   aerobicos,
+  cicloAtivo,
 }: {
   alunoId: string
   nomeAluno: string
   sessoes: Sessao[]
   aerobicos: AerobicoBrief[]
+  cicloAtivo: CicloAtivo
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -276,6 +309,8 @@ export function TreinoAlunoClient({
   const pendentes = sessoes.filter(s => s.status === 'pendente')
   const concluidas = sessoes.filter(s => s.status === 'realizado')
   const aerobicosPendentes = aerobicos.filter(a => a.status === 'pendente')
+  const semanaInfo = cicloAtivo ? calcSemanaAtual(cicloAtivo.data_inicio, cicloAtivo.data_fim) : null
+  const faseInfo = semanaInfo ? MC_FASES[semanaInfo.semana - 1] ?? null : null
 
   const treinoHoje = pendentes[0] ?? null
   const outrosTreinos = pendentes.slice(1)
@@ -335,6 +370,22 @@ export function TreinoAlunoClient({
         </p>
         <h1 className="text-2xl font-extrabold text-secondary mt-0.5">{saudacao}, {primeiroNome}!</h1>
       </div>
+
+      {/* Semana banner */}
+      {semanaInfo && faseInfo && (
+        <div className="bg-gradient-to-r from-primary to-primary-dark rounded-2xl p-5 text-white">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold opacity-80 uppercase tracking-wider">{cicloAtivo?.nome}</span>
+            <span className="text-xs font-bold opacity-90">Semana {semanaInfo.semana} de {semanaInfo.total}</span>
+          </div>
+          <p className="text-xl font-extrabold">{faseInfo.fase}</p>
+          <p className="text-sm font-semibold opacity-90 mt-0.5">{faseInfo.series}</p>
+          <div className="mt-3 bg-white/15 rounded-xl p-3">
+            <p className="text-xs font-bold opacity-90 mb-1">Missão desta semana</p>
+            <p className="text-sm leading-snug">{faseInfo.missao}</p>
+          </div>
+        </div>
+      )}
 
       {/* Treino de hoje */}
       {treinoHoje && (

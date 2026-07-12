@@ -24,7 +24,9 @@ function getMondayOfWeek(date = new Date()) {
   return d.toISOString().slice(0, 10)
 }
 
-export function FeedbackSemanalClient({ alunoId, feedbacks: initial }: { alunoId: string; feedbacks: FeedbackSemanal[] }) {
+type AutoData = { treinos_feitos: number; cardios_feitos: number; semana_inicio: string; semana_fim: string }
+
+export function FeedbackSemanalClient({ alunoId, feedbacks: initial, autoData }: { alunoId: string; feedbacks: FeedbackSemanal[]; autoData?: AutoData }) {
   const supabase = createClient()
   const [feedbacks, setFeedbacks] = useState(initial)
   const [saving, setSaving] = useState(false)
@@ -33,8 +35,8 @@ export function FeedbackSemanalClient({ alunoId, feedbacks: initial }: { alunoId
   const jaEnviou = feedbacks.some(f => f.semana_referencia === semanaAtual)
 
   const [form, setForm] = useState({
-    treinos_feitos: '',
-    cardios_feitos: '',
+    treinos_feitos: String(autoData?.treinos_feitos ?? ''),
+    cardios_feitos: String(autoData?.cardios_feitos ?? ''),
     sentiu_dor: false,
     descricao_dor: '',
     evoluiu_carga_reps: '',
@@ -81,7 +83,17 @@ export function FeedbackSemanalClient({ alunoId, feedbacks: initial }: { alunoId
       {!jaEnviou && !done && (
         <div className="card mb-8">
           <h2 className="font-extrabold text-secondary text-lg mb-1">Check-in da Semana</h2>
-          <p className="text-sm text-outline mb-6">Semana de {new Date(semanaAtual + 'T00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</p>
+          <p className="text-sm text-outline mb-2">
+            Semana de {new Date((autoData?.semana_inicio ?? semanaAtual) + 'T00:00').toLocaleDateString('pt-BR')} a {new Date((autoData?.semana_fim ?? semanaAtual) + 'T00:00').toLocaleDateString('pt-BR')}
+          </p>
+          {autoData && (autoData.treinos_feitos > 0 || autoData.cardios_feitos > 0) && (
+            <div className="flex items-center gap-3 mb-4 text-xs text-outline bg-blue-50 rounded-lg px-3 py-2">
+              <span className="text-primary font-semibold">Dados automáticos:</span>
+              <span>🏋️ {autoData.treinos_feitos} treino{autoData.treinos_feitos !== 1 ? 's' : ''} feito{autoData.treinos_feitos !== 1 ? 's' : ''}</span>
+              {autoData.cardios_feitos > 0 && <span>🏃 {autoData.cardios_feitos} cárdio{autoData.cardios_feitos !== 1 ? 's' : ''}</span>}
+              <span className="opacity-70">— edite se necessário</span>
+            </div>
+          )}
 
           <div className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
@@ -186,7 +198,14 @@ export function FeedbackSemanalClient({ alunoId, feedbacks: initial }: { alunoId
             {feedbacks.map(f => (
               <div key={f.id} className="card">
                 <div className="flex justify-between items-center">
-                  <p className="font-bold text-secondary">Semana de {new Date(f.semana_referencia + 'T00:00').toLocaleDateString('pt-BR')}</p>
+                  <p className="font-bold text-secondary">
+                    {(() => {
+                      const inicio = new Date(f.semana_referencia + 'T00:00')
+                      const fim = new Date(inicio)
+                      fim.setDate(fim.getDate() + 6)
+                      return `Semana de ${inicio.toLocaleDateString('pt-BR')} a ${fim.toLocaleDateString('pt-BR')}`
+                    })()}
+                  </p>
                   {f.aderencia_0_10 !== null && (
                     <span className={`text-sm font-bold px-3 py-1 rounded-full ${f.aderencia_0_10 >= 7 ? 'bg-green-50 text-green-700' : f.aderencia_0_10 >= 5 ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
                       {f.aderencia_0_10}/10

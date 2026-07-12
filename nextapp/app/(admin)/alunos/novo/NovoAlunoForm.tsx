@@ -213,10 +213,11 @@ export function NovoAlunoForm({ academias }: Props) {
                 <label className="label">Plano Contratado</label>
                 <select className="input" value={form.plano_contratado} onChange={e => set('plano_contratado', e.target.value)}>
                   <option value="">Selecione...</option>
-                  <option value="ALUNO BÁSICO">ALUNO BÁSICO</option>
-                  <option value="ALUNO PREMIUM">ALUNO PREMIUM</option>
-                  <option value="CONSULTORIA BÁSICA">CONSULTORIA BÁSICA</option>
-                  <option value="CONSULTORIA PREMIUM">CONSULTORIA PREMIUM</option>
+                  <option value="Trimestral">Trimestral</option>
+                  <option value="Semestral">Semestral</option>
+                  <option value="Semi-presencial">Semi-presencial</option>
+                  <option value="Presencial">Presencial</option>
+                  <option value="Família">Família</option>
                 </select>
               </div>
               <div>
