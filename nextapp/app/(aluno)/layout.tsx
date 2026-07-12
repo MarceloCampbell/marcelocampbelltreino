@@ -18,7 +18,7 @@ export default async function AlunoLayout({ children }: { children: React.ReactN
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar usuario={usuario} />
-      <main className="flex-1 min-w-0 flex flex-col">
+      <main className="flex-1 min-w-0 flex flex-col pt-14 md:pt-0">
         {children}
       </main>
     </div>

@@ -234,6 +234,51 @@ export function GestaoAlunoClient({
   const [alunoStatus, setAlunoStatus] = useState<string>(aluno.status ?? 'ativo')
   const [statusLoading, setStatusLoading] = useState(false)
 
+  // ── Edit dados pessoais
+  const [editingDados, setEditingDados] = useState(false)
+  const [savingDados, setSavingDados] = useState(false)
+  const [dadosForm, setDadosForm] = useState({
+    nome: aluno.usuario?.nome ?? '',
+    telefone: aluno.usuario?.telefone ?? '',
+    data_nascimento: aluno.usuario?.data_nascimento ?? '',
+    plano_contratado: aluno.plano_contratado ?? '',
+    valor_plano: aluno.valor_plano?.toString() ?? '',
+    data_inicio: aluno.data_inicio ?? '',
+    data_renovacao: aluno.data_renovacao ?? '',
+    nivel: aluno.nivel ?? '',
+    autonomia: aluno.autonomia ?? '',
+    disciplina: aluno.disciplina ?? '',
+    horario_treino: aluno.horario_treino ?? '',
+    objetivo: aluno.objetivo ?? '',
+    horario_contato_preferido: aluno.horario_contato_preferido ?? '',
+  })
+
+  async function saveDados() {
+    setSavingDados(true)
+    await Promise.all([
+      supabase.from('usuarios').update({
+        nome: dadosForm.nome.trim() || null,
+        telefone: dadosForm.telefone.trim() || null,
+        data_nascimento: dadosForm.data_nascimento || null,
+      }).eq('id', aluno.usuario?.id),
+      supabase.from('alunos').update({
+        plano_contratado: dadosForm.plano_contratado || null,
+        valor_plano: dadosForm.valor_plano ? parseFloat(dadosForm.valor_plano) : null,
+        data_inicio: dadosForm.data_inicio || null,
+        data_renovacao: dadosForm.data_renovacao || null,
+        nivel: dadosForm.nivel || null,
+        autonomia: dadosForm.autonomia || null,
+        disciplina: dadosForm.disciplina || null,
+        horario_treino: dadosForm.horario_treino || null,
+        objetivo: dadosForm.objetivo || null,
+        horario_contato_preferido: dadosForm.horario_contato_preferido || null,
+      } as any).eq('id', aluno.id),
+    ])
+    setSavingDados(false)
+    setEditingDados(false)
+    router.refresh()
+  }
+
   // ── Derived
   const nome = aluno.usuario?.nome ?? 'Aluno'
   const initials = nome.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()
@@ -1117,26 +1162,104 @@ export function GestaoAlunoClient({
       {tab === 1 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="card">
-            <h3 className="font-extrabold text-secondary mb-4">Dados Pessoais</h3>
-            <dl className="space-y-3">
-              {[
-                ['E-mail', aluno.usuario?.email],
-                ['Telefone', aluno.usuario?.telefone],
-                ['Nascimento', aluno.usuario?.data_nascimento ? new Date(aluno.usuario.data_nascimento + 'T00:00').toLocaleDateString('pt-BR') : null],
-                ['Plano', aluno.plano_contratado],
-                ['Valor', aluno.valor_plano ? `R$ ${aluno.valor_plano}` : null],
-                ['Contato preferido', aluno.horario_contato_preferido],
-                ['Nível', aluno.nivel],
-                ['Autonomia', aluno.autonomia],
-                ['Frequência', aluno.disciplina],
-                ['Horário', aluno.horario_treino],
-              ].filter(([, v]) => v).map(([k, v]) => (
-                <div key={k as string} className="flex justify-between gap-4">
-                  <dt className="text-xs font-semibold text-outline uppercase tracking-wider">{k}</dt>
-                  <dd className="text-sm text-secondary text-right">{v}</dd>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-secondary">Dados Pessoais</h3>
+              {!editingDados ? (
+                <button onClick={() => setEditingDados(true)} className="flex items-center gap-1 text-xs text-primary font-semibold hover:text-primary-dark transition-colors">
+                  <Edit2 size={12} /> Editar
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setEditingDados(false)} className="text-xs text-outline hover:text-secondary">Cancelar</button>
+                  <button onClick={saveDados} disabled={savingDados} className="text-xs font-semibold text-white bg-primary px-3 py-1 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
+                    {savingDados ? '...' : 'Salvar'}
+                  </button>
                 </div>
-              ))}
-            </dl>
+              )}
+            </div>
+
+            {editingDados ? (
+              <div className="space-y-3">
+                {[
+                  { label: 'Nome', field: 'nome', type: 'text' },
+                  { label: 'Telefone', field: 'telefone', type: 'text' },
+                  { label: 'Nascimento', field: 'data_nascimento', type: 'date' },
+                  { label: 'Objetivo', field: 'objetivo', type: 'text' },
+                  { label: 'Horário de contato', field: 'horario_contato_preferido', type: 'text' },
+                  { label: 'Horário de treino', field: 'horario_treino', type: 'text' },
+                ].map(({ label, field, type }) => (
+                  <div key={field}>
+                    <label className="label">{label}</label>
+                    <input
+                      className="input"
+                      type={type}
+                      value={(dadosForm as any)[field]}
+                      onChange={e => setDadosForm(prev => ({ ...prev, [field]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+                <div>
+                  <label className="label">Plano</label>
+                  <select className="input" value={dadosForm.plano_contratado} onChange={e => setDadosForm(p => ({ ...p, plano_contratado: e.target.value }))}>
+                    <option value="">Selecione...</option>
+                    <option value="ALUNO BÁSICO">ALUNO BÁSICO</option>
+                    <option value="ALUNO PREMIUM">ALUNO PREMIUM</option>
+                    <option value="CONSULTORIA BÁSICA">CONSULTORIA BÁSICA</option>
+                    <option value="CONSULTORIA PREMIUM">CONSULTORIA PREMIUM</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Valor (R$)</label>
+                  <input className="input" type="number" value={dadosForm.valor_plano} onChange={e => setDadosForm(p => ({ ...p, valor_plano: e.target.value }))} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">Data início</label>
+                    <input className="input" type="date" value={dadosForm.data_inicio} onChange={e => setDadosForm(p => ({ ...p, data_inicio: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Renovação</label>
+                    <input className="input" type="date" value={dadosForm.data_renovacao} onChange={e => setDadosForm(p => ({ ...p, data_renovacao: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Nível</label>
+                  <select className="input" value={dadosForm.nivel} onChange={e => setDadosForm(p => ({ ...p, nivel: e.target.value }))}>
+                    <option value="">Selecione...</option>
+                    <option value="iniciante">Iniciante</option>
+                    <option value="intermediario">Intermediário</option>
+                    <option value="avancado">Avançado</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Frequência/semana</label>
+                  <select className="input" value={dadosForm.disciplina} onChange={e => setDadosForm(p => ({ ...p, disciplina: e.target.value }))}>
+                    <option value="">Selecione...</option>
+                    {['2x','3x','4x','5x','6x+'].map(v => <option key={v} value={v}>{v} por semana</option>)}
+                  </select>
+                </div>
+              </div>
+            ) : (
+              <dl className="space-y-3">
+                {[
+                  ['E-mail', aluno.usuario?.email],
+                  ['Telefone', aluno.usuario?.telefone],
+                  ['Nascimento', aluno.usuario?.data_nascimento ? new Date(aluno.usuario.data_nascimento + 'T00:00').toLocaleDateString('pt-BR') : null],
+                  ['Plano', aluno.plano_contratado],
+                  ['Valor', aluno.valor_plano ? `R$ ${aluno.valor_plano}` : null],
+                  ['Contato preferido', aluno.horario_contato_preferido],
+                  ['Nível', aluno.nivel],
+                  ['Autonomia', aluno.autonomia],
+                  ['Frequência', aluno.disciplina],
+                  ['Horário', aluno.horario_treino],
+                ].filter(([, v]) => v).map(([k, v]) => (
+                  <div key={k as string} className="flex justify-between gap-4">
+                    <dt className="text-xs font-semibold text-outline uppercase tracking-wider">{k}</dt>
+                    <dd className="text-sm text-secondary text-right">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
           <div className="card">
             <h3 className="font-extrabold text-secondary mb-4">Perfil Comportamental</h3>
