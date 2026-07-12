@@ -77,7 +77,9 @@ export function Sidebar({ usuario }: SidebarProps) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-secondary truncate">{usuario.nome}</p>
-            <p className="text-[10px] text-outline capitalize">{usuario.papel}</p>
+            <p className="text-[10px] text-outline capitalize">
+              {usuario.papel === 'admin' ? 'Administrador' : usuario.papel === 'assistente' ? 'Assistente' : 'Aluno'}
+            </p>
           </div>
           <button
             onClick={handleLogout}

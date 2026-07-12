@@ -81,7 +81,7 @@ type ItemForm = {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const TABS = ['Treinos', 'Dados', 'Ficha Saúde', 'Anotações', 'Feedbacks', 'Score / Evolução']
+const TABS = ['Treinos', 'Dados', 'Ficha Saúde', 'Anotações', 'Feedbacks', 'Pontuação / Evolução']
 const DIA_LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 const DIAS_SEMANA = [
   { value: '', label: 'Sem dia' },
@@ -700,7 +700,7 @@ export function GestaoAlunoClient({
                   <div className="text-center py-16 text-outline">
                     <Dumbbell size={48} className="mx-auto mb-3 opacity-30" />
                     <p className="font-semibold">Nenhuma rotina {rotinaView === 'arquivada' ? 'arquivada' : rotinaView === 'excluida' ? 'excluída' : 'ativa'}</p>
-                    {rotinaView === 'ativa' && <p className="text-sm mt-1">Clique em "Criar Rotina" para começar</p>}
+                    {rotinaView === 'ativa' && <p className="text-sm mt-1">Clique em &quot;Criar Rotina&quot; para começar</p>}
                   </div>
                 )}
               </div>
@@ -731,7 +731,7 @@ export function GestaoAlunoClient({
                       </p>
                     )}
                     {selectedRotina.orientacoes && (
-                      <p className="text-xs text-outline mt-1 italic">"{selectedRotina.orientacoes}"</p>
+                      <p className="text-xs text-outline mt-1 italic">&quot;{selectedRotina.orientacoes}&quot;</p>
                     )}
                   </div>
                 </div>
@@ -816,7 +816,7 @@ export function GestaoAlunoClient({
                   {selectedRotina.sessoes_treino.length === 0 && (
                     <div className="text-center py-12 text-outline">
                       <p className="font-semibold">Nenhum treino nesta rotina</p>
-                      <p className="text-sm mt-1">Use "Adicionar treino" para criar o primeiro</p>
+                      <p className="text-sm mt-1">Use &quot;Adicionar treino&quot; para criar o primeiro</p>
                     </div>
                   )}
                   {[...selectedRotina.sessoes_treino]
