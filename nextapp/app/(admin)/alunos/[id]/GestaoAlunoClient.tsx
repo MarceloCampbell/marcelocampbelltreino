@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   TrendingUp, Calendar, Scale, AlertCircle, PenLine, Plus, KeyRound, X,
   ChevronLeft, ChevronDown, ChevronRight, ChevronUp, Trash2, Archive, RotateCcw,
-  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown,
+  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -233,6 +233,10 @@ export function GestaoAlunoClient({
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editItemPeriod, setEditItemPeriod] = useState<SemanaItem[]>([])
   const [editItemObs, setEditItemObs] = useState('')
+  const [editItemDescanso, setEditItemDescanso] = useState('90')
+  const [editItemExId, setEditItemExId] = useState('')
+  const [editItemExNome, setEditItemExNome] = useState('')
+  const [editItemExSearch, setEditItemExSearch] = useState('')
   const [editItemMetodo, setEditItemMetodo] = useState('')
   const [editItemMetodoParams, setEditItemMetodoParams] = useState<Record<string, string>>({})
   const [savingItem, setSavingItem] = useState(false)
@@ -385,19 +389,26 @@ export function GestaoAlunoClient({
     setEditingItemId(item.id)
     setEditItemPeriod(period)
     setEditItemObs(item.observacoes ?? '')
+    setEditItemDescanso(String(item.descanso_seg ?? 90))
+    setEditItemExId(item.exercicio?.id ?? '')
+    setEditItemExNome(item.exercicio?.nome ?? '')
+    setEditItemExSearch('')
     setEditItemMetodo('')
     setEditItemMetodoParams({})
   }
 
   async function saveEditItem(sessaoId: string, itemId: string) {
     setSavingItem(true)
-    await supabase.from('sessao_itens').update({
+    const updates: any = {
       series: parseInt(editItemPeriod[0]?.series) || null,
       repeticoes: editItemPeriod[0]?.repeticoes || null,
       carga_kg: parseFloat(editItemPeriod[0]?.carga_kg) || null,
+      descanso_seg: parseInt(editItemDescanso) || null,
       observacoes: editItemObs || null,
       periodizacao_semanal: editItemPeriod,
-    }).eq('id', itemId)
+    }
+    if (editItemExId) updates.exercicio_id = editItemExId
+    await supabase.from('sessao_itens').update(updates).eq('id', itemId)
     // refresh rotina
     const { data: updated } = await supabase
       .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
@@ -412,7 +423,6 @@ export function GestaoAlunoClient({
   }
 
   async function deleteItem(sessaoId: string, itemId: string) {
-    if (!confirm('Remover este exercício do treino?')) return
     await supabase.from('sessao_itens').delete().eq('id', itemId)
     const { data: updated } = await supabase
       .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
@@ -515,7 +525,7 @@ export function GestaoAlunoClient({
       grupo_muscular: ex.grupo_muscular,
       ordem: prev.length + 1,
       periodizacao: buildPeriodizacao(numSemanas),
-      descanso_seg: '60',
+      descanso_seg: '90',
       observacoes: '',
       metodo: '',
       metodo_params: {},
@@ -1231,105 +1241,34 @@ export function GestaoAlunoClient({
 
                                 {isEditingThis ? (
                                   <div className="ml-7 bg-background rounded-lg p-3">
-                                    {/* Método de treino */}
-                                    <div className="mb-3">
-                                      <label className="text-xs font-semibold text-outline mb-1 block">Método de treino</label>
-                                      <select
+                                    {/* Exercise swap */}
+                                    <div className="mb-3 relative">
+                                      <label className="text-xs font-semibold text-outline mb-1 block">Exercício</label>
+                                      <input
                                         className="input text-xs py-1"
-                                        value={editItemMetodo}
-                                        onChange={e => {
-                                          const m = e.target.value
-                                          setEditItemMetodo(m)
-                                          setEditItemMetodoParams({})
-                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
-                                          if (techMethods.includes(m)) {
-                                            setEditItemObs(applyMetodoTemplate(m, {}))
-                                          }
-                                        }}
-                                      >
-                                        <option value="">— Nenhum —</option>
-                                        <optgroup label="Métodos Estruturais">
-                                          <option value="cluster_set">Cluster Set</option>
-                                          <option value="rest_pause">Rest Pause</option>
-                                          <option value="drop_set">Drop Set</option>
-                                          <option value="back_off_set">Back Off Set</option>
-                                        </optgroup>
-                                        <optgroup label="Instruções Técnicas">
-                                          <option value="pausa_excentrica">Pausa Excêntrica</option>
-                                          <option value="pico_contracao">Pico de Contração</option>
-                                          <option value="reps_parciais">Repetições Parciais</option>
-                                          <option value="descanso_especifico">Descanso Específico</option>
-                                        </optgroup>
-                                      </select>
-
-                                      {/* Structural method sub-fields */}
-                                      {editItemMetodo === 'cluster_set' && (
-                                        <div className="flex gap-2 mt-2 flex-wrap">
-                                          {[['blocos', 'Blocos'], ['reps_bloco', 'Reps/bloco'], ['descanso', 'Descanso (s)']].map(([k, label]) => (
-                                            <div key={k} className="flex flex-col gap-0.5">
-                                              <span className="text-[10px] text-outline">{label}</span>
-                                              <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[k] ?? ''} onChange={e => {
-                                                const p = { ...editItemMetodoParams, [k]: e.target.value }
-                                                setEditItemMetodoParams(p)
-                                                setEditItemObs(applyMetodoTemplate('cluster_set', p))
-                                              }} placeholder="?" />
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                      {editItemMetodo === 'rest_pause' && (
-                                        <div className="flex gap-2 mt-2 flex-wrap">
-                                          {[['r1', 'Reps 1'], ['r2', 'Reps 2'], ['r3', 'Reps 3'], ['descanso', 'Descanso (s)']].map(([k, label]) => (
-                                            <div key={k} className="flex flex-col gap-0.5">
-                                              <span className="text-[10px] text-outline">{label}</span>
-                                              <input className="input text-xs py-0.5 w-16" value={editItemMetodoParams[k] ?? ''} onChange={e => {
-                                                const p = { ...editItemMetodoParams, [k]: e.target.value }
-                                                setEditItemMetodoParams(p)
-                                                setEditItemObs(applyMetodoTemplate('rest_pause', p))
-                                              }} placeholder="?" />
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                      {(editItemMetodo === 'drop_set' || editItemMetodo === 'back_off_set') && (
-                                        <div className="flex gap-2 mt-2 flex-wrap">
-                                          <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-outline">% redução</span>
-                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams['pct'] ?? ''} onChange={e => {
-                                              const p = { ...editItemMetodoParams, pct: e.target.value }
-                                              setEditItemMetodoParams(p)
-                                              setEditItemObs(applyMetodoTemplate(editItemMetodo, p))
-                                            }} placeholder="?" />
-                                          </div>
-                                          {editItemMetodo === 'back_off_set' && (
-                                            <div className="flex flex-col gap-0.5">
-                                              <span className="text-[10px] text-outline">Descanso extra (s)</span>
-                                              <input className="input text-xs py-0.5 w-24" value={editItemMetodoParams['descanso'] ?? ''} onChange={e => {
-                                                const p = { ...editItemMetodoParams, descanso: e.target.value }
-                                                setEditItemMetodoParams(p)
-                                                setEditItemObs(applyMetodoTemplate('back_off_set', p))
-                                              }} placeholder="?" />
-                                            </div>
+                                        value={editItemExSearch !== '' ? editItemExSearch : editItemExNome}
+                                        onChange={e => { setEditItemExSearch(e.target.value); setEditItemExNome(e.target.value) }}
+                                        placeholder="Digitar para trocar exercício..."
+                                      />
+                                      {editItemExSearch !== '' && (
+                                        <div className="absolute left-0 right-0 top-full mt-0.5 border border-outline-variant rounded-lg bg-white shadow-md z-10 max-h-36 overflow-y-auto">
+                                          {exerciciosBiblioteca
+                                            .filter(e => e.nome.toLowerCase().includes(editItemExSearch.toLowerCase()))
+                                            .slice(0, 10)
+                                            .map(e => (
+                                              <button key={e.id} className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 text-secondary" onClick={() => { setEditItemExId(e.id); setEditItemExNome(e.nome); setEditItemExSearch('') }}>
+                                                <span className="font-medium">{e.nome}</span>
+                                                <span className="text-outline ml-1 text-[10px]">({e.grupo_muscular})</span>
+                                              </button>
+                                            ))}
+                                          {exerciciosBiblioteca.filter(e => e.nome.toLowerCase().includes(editItemExSearch.toLowerCase())).length === 0 && (
+                                            <p className="text-xs text-outline text-center py-2">Nenhum encontrado</p>
                                           )}
-                                        </div>
-                                      )}
-                                      {['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico'].includes(editItemMetodo) && (
-                                        <div className="flex gap-2 mt-2 flex-wrap">
-                                          <div className="flex flex-col gap-0.5">
-                                            <span className="text-[10px] text-outline">
-                                              {editItemMetodo === 'reps_parciais' ? 'Reps parciais' : 'Segundos'}
-                                            </span>
-                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'] ?? ''} onChange={e => {
-                                              const key = editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'
-                                              const p = { ...editItemMetodoParams, [key]: e.target.value }
-                                              setEditItemMetodoParams(p)
-                                              setEditItemObs(applyMetodoTemplate(editItemMetodo, p))
-                                            }} placeholder={editItemMetodo === 'pausa_excentrica' ? '3' : editItemMetodo === 'pico_contracao' ? '2' : editItemMetodo === 'reps_parciais' ? '4' : '90'} />
-                                          </div>
                                         </div>
                                       )}
                                     </div>
 
+                                    {/* Periodization table */}
                                     <div className="overflow-x-auto mb-2">
                                       <table className="w-full text-xs">
                                         <thead>
@@ -1368,6 +1307,96 @@ export function GestaoAlunoClient({
                                         </tbody>
                                       </table>
                                     </div>
+
+                                    {/* Descanso */}
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <Clock size={12} className="text-outline flex-shrink-0" />
+                                      <label className="text-xs text-outline">Intervalo</label>
+                                      <input
+                                        type="number"
+                                        className="border border-outline-variant rounded px-2 py-0.5 text-xs w-16 focus:outline-none focus:border-primary text-center"
+                                        value={editItemDescanso}
+                                        onChange={e => setEditItemDescanso(e.target.value)}
+                                        placeholder="90"
+                                      />
+                                      <span className="text-xs text-outline">seg</span>
+                                    </div>
+
+                                    {/* Método de treino */}
+                                    <div className="mb-3">
+                                      <label className="text-xs font-semibold text-outline mb-1 block">Método de treino</label>
+                                      <select
+                                        className="input text-xs py-1"
+                                        value={editItemMetodo}
+                                        onChange={e => {
+                                          const m = e.target.value
+                                          setEditItemMetodo(m)
+                                          setEditItemMetodoParams({})
+                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
+                                          if (techMethods.includes(m)) {
+                                            setEditItemObs(applyMetodoTemplate(m, {}))
+                                          }
+                                        }}
+                                      >
+                                        <option value="">— Nenhum —</option>
+                                        <optgroup label="Métodos Estruturais">
+                                          <option value="cluster_set">Cluster Set</option>
+                                          <option value="rest_pause">Rest Pause</option>
+                                          <option value="drop_set">Drop Set</option>
+                                          <option value="back_off_set">Back Off Set</option>
+                                        </optgroup>
+                                        <optgroup label="Instruções Técnicas">
+                                          <option value="pausa_excentrica">Pausa Excêntrica</option>
+                                          <option value="pico_contracao">Pico de Contração</option>
+                                          <option value="reps_parciais">Repetições Parciais</option>
+                                          <option value="descanso_especifico">Descanso Específico</option>
+                                        </optgroup>
+                                      </select>
+
+                                      {editItemMetodo === 'cluster_set' && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          {[['blocos', 'Blocos'], ['reps_bloco', 'Reps/bloco'], ['descanso', 'Descanso (s)']].map(([k, label]) => (
+                                            <div key={k} className="flex flex-col gap-0.5">
+                                              <span className="text-[10px] text-outline">{label}</span>
+                                              <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[k] ?? ''} onChange={e => { const p = { ...editItemMetodoParams, [k]: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate('cluster_set', p)) }} placeholder="?" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {editItemMetodo === 'rest_pause' && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          {[['r1', 'Reps 1'], ['r2', 'Reps 2'], ['r3', 'Reps 3'], ['descanso', 'Descanso (s)']].map(([k, label]) => (
+                                            <div key={k} className="flex flex-col gap-0.5">
+                                              <span className="text-[10px] text-outline">{label}</span>
+                                              <input className="input text-xs py-0.5 w-16" value={editItemMetodoParams[k] ?? ''} onChange={e => { const p = { ...editItemMetodoParams, [k]: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate('rest_pause', p)) }} placeholder="?" />
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                      {(editItemMetodo === 'drop_set' || editItemMetodo === 'back_off_set') && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-outline">% redução</span>
+                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams['pct'] ?? ''} onChange={e => { const p = { ...editItemMetodoParams, pct: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate(editItemMetodo, p)) }} placeholder="?" />
+                                          </div>
+                                          {editItemMetodo === 'back_off_set' && (
+                                            <div className="flex flex-col gap-0.5">
+                                              <span className="text-[10px] text-outline">Descanso extra (s)</span>
+                                              <input className="input text-xs py-0.5 w-24" value={editItemMetodoParams['descanso'] ?? ''} onChange={e => { const p = { ...editItemMetodoParams, descanso: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate('back_off_set', p)) }} placeholder="?" />
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      {['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico'].includes(editItemMetodo) && (
+                                        <div className="flex gap-2 mt-2 flex-wrap">
+                                          <div className="flex flex-col gap-0.5">
+                                            <span className="text-[10px] text-outline">{editItemMetodo === 'reps_parciais' ? 'Reps parciais' : 'Segundos'}</span>
+                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'] ?? ''} onChange={e => { const key = editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'; const p = { ...editItemMetodoParams, [key]: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate(editItemMetodo, p)) }} placeholder={editItemMetodo === 'pausa_excentrica' ? '3' : editItemMetodo === 'pico_contracao' ? '2' : editItemMetodo === 'reps_parciais' ? '4' : '90'} />
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+
                                     <div className="flex gap-2">
                                       <button onClick={() => saveEditItem(s.id, item.id)} disabled={savingItem} className="text-xs font-semibold text-white bg-primary px-3 py-1 rounded-lg hover:bg-primary-dark transition-colors disabled:opacity-50">
                                         {savingItem ? '...' : 'Salvar'}
@@ -1551,6 +1580,21 @@ export function GestaoAlunoClient({
                                           onChange={e => updateItemField(item.key, 'observacoes', e.target.value)}
                                           placeholder="Observações do exercício (visível ao aluno)..."
                                         />
+                                      </td>
+                                    </tr>
+                                    <tr>
+                                      <td className="text-outline pr-2 py-1 text-xs flex items-center gap-1"><Clock size={11} className="text-outline flex-shrink-0" />Interv.</td>
+                                      <td colSpan={item.periodizacao.length} className="py-1 px-1">
+                                        <div className="flex items-center gap-1">
+                                          <input
+                                            type="number"
+                                            className="w-16 border border-outline-variant rounded px-2 py-0.5 text-xs focus:outline-none focus:border-primary text-center"
+                                            value={item.descanso_seg}
+                                            onChange={e => updateItemField(item.key, 'descanso_seg', e.target.value)}
+                                            placeholder="90"
+                                          />
+                                          <span className="text-[10px] text-outline">seg</span>
+                                        </div>
                                       </td>
                                     </tr>
                                     <tr>

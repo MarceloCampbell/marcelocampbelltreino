@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckCircle2, ChevronDown, ChevronUp, Loader2, X, RefreshCw,
-  Dumbbell, Clock, ChevronRight
+  Dumbbell, Clock, ChevronRight, Play
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
@@ -139,8 +139,27 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   semanaAtual?: number
 }) {
   const [isOpen, setIsOpen] = useState(highlight)
+  const [iniciado, setIniciado] = useState(false)
+  const [sessionSecs, setSessionSecs] = useState(0)
+  const [restTimer, setRestTimer] = useState<{ itemId: string; secs: number } | null>(null)
   const isRealizado = sessao.status === 'realizado'
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
+
+  useEffect(() => {
+    if (!iniciado) return
+    const id = setInterval(() => setSessionSecs(s => s + 1), 1000)
+    return () => clearInterval(id)
+  }, [iniciado])
+
+  useEffect(() => {
+    if (!restTimer || restTimer.secs <= 0) return
+    const id = setTimeout(() => setRestTimer(r => r && r.secs > 0 ? { ...r, secs: r.secs - 1 } : null), 1000)
+    return () => clearTimeout(id)
+  }, [restTimer?.secs, restTimer?.itemId])
+
+  function fmt(secs: number) {
+    return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`
+  }
 
   return (
     <div className={`bg-white rounded-2xl overflow-hidden ${isRealizado ? 'opacity-70' : ''} ${highlight ? 'ring-2 ring-primary shadow-lg' : 'shadow-card'}`}>
@@ -176,18 +195,55 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
             </div>
           )}
 
+          {!isRealizado && (
+            <div className="px-5 pt-4 pb-1">
+              {!iniciado ? (
+                <button
+                  onClick={() => { setIniciado(true); setSessionSecs(0) }}
+                  className="btn-primary w-full"
+                >
+                  <Play size={15} />
+                  Iniciar Treino
+                </button>
+              ) : (
+                <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0" />
+                    <span className="text-lg font-bold text-green-700 tabular-nums">{fmt(sessionSecs)}</span>
+                    <span className="text-xs text-green-600">em andamento</span>
+                  </div>
+                  <button onClick={() => setIniciado(false)} className="text-xs text-green-500 hover:text-green-700">Pausar</button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {restTimer && (
+            <div className="mx-5 mt-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-center gap-3">
+              <Clock size={16} className="text-orange-500 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-[10px] text-orange-600 uppercase tracking-wide font-semibold">Intervalo</p>
+                <p className="text-2xl font-bold text-orange-600 tabular-nums leading-none">{fmt(restTimer.secs)}</p>
+              </div>
+              <button onClick={() => setRestTimer(null)} className="text-xs text-orange-400 hover:text-orange-600 font-medium">Pular</button>
+            </div>
+          )}
+
           <div className="p-5 space-y-3">
             {itens.map(item => {
               const ex = item.exercicio
               const showSubstituto = substitutoAberto === item.id && ex?.substituto
               const videoToShow = showSubstituto ? ex!.substituto! : ex
+              const isResting = restTimer?.itemId === item.id
 
               return (
-                <div key={item.id} className="bg-background rounded-xl overflow-hidden">
+                <div key={item.id} className={`bg-background rounded-xl overflow-hidden ${isResting ? 'ring-1 ring-orange-300' : ''}`}>
                   <div className="flex items-start gap-4 p-4">
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-secondary">{showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}</p>
-                      {showSubstituto && <p className="text-xs text-orange-600 font-semibold">Exercício substituto</p>}
+                      {showSubstituto && (
+                        <p className="text-[10px] text-orange-500 font-medium uppercase tracking-wide">Substituto</p>
+                      )}
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {item.periodizacao_semanal?.length > 0 ? (() => {
                           const semanas: any[] = item.periodizacao_semanal
@@ -219,11 +275,25 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
                           className="flex items-center gap-1 text-xs text-orange-600 font-semibold mt-2 hover:text-orange-700 transition-colors"
                         >
                           <RefreshCw size={11} />
-                          {substitutoAberto === item.id ? 'Ver original' : 'Exercício Substituto'}
+                          {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
                         </button>
                       )}
                     </div>
-                    {videoToShow?.video_url && <VideoThumbnail url={videoToShow.video_url} nome={videoToShow.nome} />}
+                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                      {videoToShow?.video_url && <VideoThumbnail url={videoToShow.video_url} nome={videoToShow.nome} />}
+                      {iniciado && (
+                        <button
+                          onClick={() => {
+                            const d = item.descanso_seg ?? 90
+                            setRestTimer({ itemId: item.id, secs: d })
+                          }}
+                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-white border border-outline-variant text-outline hover:text-primary hover:border-primary'}`}
+                        >
+                          <Clock size={11} />
+                          {isResting ? fmt(restTimer!.secs) : fmt(item.descanso_seg ?? 90)}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )
