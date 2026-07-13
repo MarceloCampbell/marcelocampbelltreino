@@ -21,7 +21,10 @@ type Exercicio = {
   musculo_terciario: string | null
   series_secundario: number | null
   series_terciario: number | null
+  exercicio_academias?: { academia_id: string }[]
 }
+
+type AcademiaBrief = { id: string; nome: string }
 
 const GRUPOS = [
   'Peito', 'Dorsais', 'Superior Costas', 'Ombros', 'Deltoide anterior', 'Deltoide lateral', 'Deltoide posterior',
@@ -36,11 +39,12 @@ function getYoutubeId(url: string | null): string | null {
   return m ? m[1] : null
 }
 
-function ExercicioForm({ f, setF, allExercicios, excludeId }: {
+function ExercicioForm({ f, setF, allExercicios, excludeId, academias }: {
   f: FormState
   setF: (fn: (p: FormState) => FormState) => void
   allExercicios: Exercicio[]
   excludeId?: string
+  academias: AcademiaBrief[]
 }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -133,6 +137,30 @@ function ExercicioForm({ f, setF, allExercicios, excludeId }: {
           </div>
         )}
       </div>
+
+      {academias.length > 0 && (
+        <div className="sm:col-span-2">
+          <label className="label">Disponível nas academias</label>
+          <div className="flex flex-wrap gap-3 mt-1">
+            {academias.map(a => (
+              <label key={a.id} className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded"
+                  checked={f.academias_ids.includes(a.id)}
+                  onChange={e => setF(p => ({
+                    ...p,
+                    academias_ids: e.target.checked
+                      ? [...p.academias_ids, a.id]
+                      : p.academias_ids.filter(id => id !== a.id),
+                  }))}
+                />
+                <span className="text-sm text-secondary">{a.nome}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -151,6 +179,7 @@ type FormState = {
   musculo_terciario: string
   series_secundario: string
   series_terciario: string
+  academias_ids: string[]
 }
 
 const emptyForm = (): FormState => ({
@@ -158,9 +187,10 @@ const emptyForm = (): FormState => ({
   video_url: '', equipamento: '', erros_comuns: '', exercicio_substituto_id: '',
   musculo_primario: '', musculo_secundario: '', musculo_terciario: '',
   series_secundario: '0.5', series_terciario: '0.5',
+  academias_ids: [],
 })
 
-export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercicio[] }) {
+export function BibliotecaClient({ exercicios: initial, academias }: { exercicios: Exercicio[]; academias: AcademiaBrief[] }) {
   const supabase = createClient()
   const [exercicios, setExercicios] = useState(initial)
   const [search, setSearch] = useState('')
@@ -204,7 +234,12 @@ export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercici
     setSaving(true)
     const { data } = await supabase.from('exercicios').insert(toDbPayload(form)).select().single()
     if (data) {
-      setExercicios(prev => [data, ...prev])
+      if (form.academias_ids.length > 0) {
+        await supabase.from('exercicio_academias').insert(
+          form.academias_ids.map(aid => ({ exercicio_id: data.id, academia_id: aid, disponivel: true }))
+        )
+      }
+      setExercicios(prev => [{ ...data, exercicio_academias: form.academias_ids.map(aid => ({ academia_id: aid })) }, ...prev])
       setForm(emptyForm())
       setShowForm(false)
     }
@@ -227,6 +262,7 @@ export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercici
       musculo_terciario: ex.musculo_terciario || '',
       series_secundario: String(ex.series_secundario ?? 0.5),
       series_terciario: String(ex.series_terciario ?? 0.5),
+      academias_ids: ex.exercicio_academias?.map(ea => ea.academia_id) ?? [],
     })
   }
 
@@ -235,7 +271,16 @@ export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercici
     setEditSaving(true)
     const { data } = await supabase.from('exercicios').update(toDbPayload(editForm)).eq('id', id).select().single()
     if (data) {
-      setExercicios(prev => prev.map(e => e.id === id ? { ...e, ...data } : e))
+      await supabase.from('exercicio_academias').delete().eq('exercicio_id', id)
+      if (editForm.academias_ids.length > 0) {
+        await supabase.from('exercicio_academias').insert(
+          editForm.academias_ids.map(aid => ({ exercicio_id: id, academia_id: aid, disponivel: true }))
+        )
+      }
+      setExercicios(prev => prev.map(e => e.id === id
+        ? { ...e, ...data, exercicio_academias: editForm.academias_ids.map(aid => ({ academia_id: aid })) }
+        : e
+      ))
       setEditingId(null)
     }
     setEditSaving(false)
@@ -271,7 +316,7 @@ export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercici
       {showForm && (
         <div className="card mb-6 border-2 border-primary">
           <h3 className="font-extrabold text-secondary mb-4">Novo Exercício</h3>
-          <ExercicioForm f={form} setF={setForm} allExercicios={exercicios} />
+          <ExercicioForm f={form} setF={setForm} allExercicios={exercicios} academias={academias} />
           <div className="flex gap-3 mt-4">
             <button onClick={saveExercicio} disabled={saving || !form.nome || !form.grupo_muscular} className="btn-primary text-sm px-6">
               {saving ? <Loader2 size={14} className="animate-spin" /> : null} Salvar
@@ -352,7 +397,7 @@ export function BibliotecaClient({ exercicios: initial }: { exercicios: Exercici
                   {editingId === ex.id ? (
                     <div className="mt-4">
                       <h4 className="font-extrabold text-secondary mb-3">Editar Exercício</h4>
-                      <ExercicioForm f={editForm} setF={setEditForm} allExercicios={exercicios} excludeId={ex.id} />
+                      <ExercicioForm f={editForm} setF={setEditForm} allExercicios={exercicios} excludeId={ex.id} academias={academias} />
                       <div className="flex gap-3 mt-4">
                         <button onClick={() => saveEdit(ex.id)} disabled={editSaving || !editForm.nome || !editForm.grupo_muscular} className="btn-primary text-sm px-6">
                           {editSaving ? <Loader2 size={14} className="animate-spin" /> : null} Salvar
