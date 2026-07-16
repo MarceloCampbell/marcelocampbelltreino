@@ -31,6 +31,7 @@ type SessaoItem = {
   descanso_seg: number | null
   observacoes: string | null
   periodizacao_semanal: any
+  biset_grupo: string | null
   exercicio: ExercicioComSubstituto | null
 }
 
@@ -228,20 +229,31 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
           )}
 
           <div className="p-5 space-y-3">
-            {itens.map(item => {
-              const ex = item.exercicio
-              const showSubstituto = substitutoAberto === item.id && ex?.substituto
-              const videoToShow = showSubstituto ? ex!.substituto! : ex
-              const isResting = restTimer?.itemId === item.id
+            {(() => {
+              // Build render groups: single items or bi-set arrays
+              const groups: SessaoItem[][] = []
+              const seen = new Set<string>()
+              for (const item of itens) {
+                if (item.biset_grupo) {
+                  if (!seen.has(item.biset_grupo)) {
+                    seen.add(item.biset_grupo)
+                    groups.push(itens.filter(i => i.biset_grupo === item.biset_grupo))
+                  }
+                } else {
+                  groups.push([item])
+                }
+              }
 
-              return (
-                <div key={item.id} className={`bg-background rounded-xl overflow-hidden ${isResting ? 'ring-1 ring-orange-300' : ''}`}>
-                  <div className="flex items-start gap-4 p-4">
+              function renderItemRow(item: SessaoItem, isBiset: boolean) {
+                const ex = item.exercicio
+                const showSubstituto = substitutoAberto === item.id && ex?.substituto
+                const videoToShow = showSubstituto ? ex!.substituto! : ex
+                const isResting = restTimer?.itemId === item.id
+                return (
+                  <div key={item.id} className={`flex items-start gap-4 p-4 ${isBiset ? '' : ''}`}>
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-secondary">{showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}</p>
-                      {showSubstituto && (
-                        <p className="text-[10px] text-orange-500 font-medium uppercase tracking-wide">Substituto</p>
-                      )}
+                      {showSubstituto && <p className="text-[10px] text-orange-500 font-medium uppercase tracking-wide">Substituto</p>}
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {item.periodizacao_semanal?.length > 0 ? (() => {
                           const semanas: any[] = item.periodizacao_semanal
@@ -281,10 +293,7 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
                       {videoToShow?.video_url && <VideoThumbnail url={videoToShow.video_url} nome={videoToShow.nome} />}
                       {iniciado && (
                         <button
-                          onClick={() => {
-                            const d = item.descanso_seg ?? 90
-                            setRestTimer({ itemId: item.id, secs: d })
-                          }}
+                          onClick={() => setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })}
                           className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-white border border-outline-variant text-outline hover:text-primary hover:border-primary'}`}
                         >
                           <Clock size={11} />
@@ -293,9 +302,35 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
                       )}
                     </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              }
+
+              return groups.map((group, gIdx) => {
+                if (group.length === 1) {
+                  const item = group[0]
+                  const isResting = restTimer?.itemId === item.id
+                  return (
+                    <div key={item.id} className={`bg-background rounded-xl overflow-hidden ${isResting ? 'ring-1 ring-orange-300' : ''}`}>
+                      {renderItemRow(item, false)}
+                    </div>
+                  )
+                }
+                // Bi-set card
+                return (
+                  <div key={`biset-${group[0].biset_grupo}`} className="bg-background rounded-xl overflow-hidden border border-primary/20">
+                    <div className="px-4 pt-3 pb-1 flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Bi-set</span>
+                    </div>
+                    {group.map((item, idx) => (
+                      <div key={item.id}>
+                        {idx > 0 && <div className="mx-4 border-t border-dashed border-outline-variant" />}
+                        {renderItemRow(item, true)}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })
+            })()}
           </div>
 
           {!isRealizado && feedbackSessao !== sessao.id && (

@@ -18,8 +18,10 @@ type SessaoItem = {
   series: number | null
   repeticoes: string | null
   carga_kg: number | null
+  descanso_seg: number | null
   periodizacao_semanal: any
   observacoes: string | null
+  biset_grupo: string | null
   exercicio: { id: string; nome: string; grupo_muscular: string; video_url: string | null } | null
 }
 
@@ -229,6 +231,9 @@ export function GestaoAlunoClient({
   const [editRotinaForm, setEditRotinaForm] = useState({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '' })
   const [savingEditRotina, setSavingEditRotina] = useState(false)
 
+  // ── Bi-set selection
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+
   // ── Edit sessao item inline
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editItemPeriod, setEditItemPeriod] = useState<SemanaItem[]>([])
@@ -424,9 +429,40 @@ export function GestaoAlunoClient({
 
   async function deleteItem(sessaoId: string, itemId: string) {
     await supabase.from('sessao_itens').delete().eq('id', itemId)
+    setSelectedItemIds(prev => { const s = new Set(prev); s.delete(itemId); return s })
     const { data: updated } = await supabase
       .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
       .eq('id', selectedRotina!.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+  }
+
+  async function combinarItems() {
+    if (!selectedRotina || selectedItemIds.size < 2) return
+    const grupoId = crypto.randomUUID().slice(0, 8)
+    await Promise.all([...selectedItemIds].map(id =>
+      supabase.from('sessao_itens').update({ biset_grupo: grupoId }).eq('id', id)
+    ))
+    setSelectedItemIds(new Set())
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+  }
+
+  async function descombinarGrupo(grupoId: string) {
+    if (!selectedRotina) return
+    await supabase.from('sessao_itens').update({ biset_grupo: null }).eq('biset_grupo', grupoId)
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina.id).single()
     if (updated) {
       const updatedRotina = updated as unknown as Rotina
       setSelectedRotina(updatedRotina)
@@ -1218,18 +1254,60 @@ export function GestaoAlunoClient({
                         </div>
                       )}
 
-                      {s.sessao_itens.length > 0 && (
+                      {s.sessao_itens.length > 0 && (() => {
+                        const sessaoSelectedCount = s.sessao_itens.filter(i => selectedItemIds.has(i.id)).length
+                        return (
                         <div className="mt-3 pt-3 border-t border-outline-variant space-y-2">
+                          {sessaoSelectedCount >= 2 && (
+                            <div className="flex gap-2 pb-1">
+                              <button
+                                onClick={combinarItems}
+                                className="flex-1 text-xs font-semibold text-white bg-primary rounded-lg px-3 py-1.5 hover:bg-primary-dark transition-colors"
+                              >
+                                Combinar bi-set
+                              </button>
+                              <button
+                                onClick={() => setSelectedItemIds(new Set())}
+                                className="text-xs text-outline hover:text-secondary px-2"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          )}
                           {s.sessao_itens.map((item, iIdx) => {
                             const pSemanas: SemanaItem[] = item.periodizacao_semanal ?? []
                             const isEditingThis = editingItemId === item.id
+                            const isSelected = selectedItemIds.has(item.id)
+                            const inBiset = !!item.biset_grupo
                             return (
-                              <div key={item.id} className="text-sm">
+                              <div key={item.id} className={`text-sm ${inBiset ? 'border-l-2 border-primary pl-2 rounded-r' : ''}`}>
                                 <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-bold text-outline w-5">{iIdx + 1}.</span>
+                                  <input
+                                    type="checkbox"
+                                    className="w-3.5 h-3.5 flex-shrink-0"
+                                    checked={isSelected}
+                                    onChange={e => setSelectedItemIds(prev => {
+                                      const s = new Set(prev)
+                                      e.target.checked ? s.add(item.id) : s.delete(item.id)
+                                      return s
+                                    })}
+                                  />
+                                  <span className="text-xs font-bold text-outline w-4">{iIdx + 1}.</span>
                                   <span className="font-medium text-secondary">{item.exercicio?.nome ?? '–'}</span>
                                   <span className="text-xs text-outline bg-gray-100 px-1.5 py-0.5 rounded">{item.exercicio?.grupo_muscular}</span>
+                                  {inBiset && (
+                                    <span className="text-[10px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded">Bi-set</span>
+                                  )}
                                   <div className="ml-auto flex items-center gap-1">
+                                    {inBiset && (
+                                      <button
+                                        onClick={() => descombinarGrupo(item.biset_grupo!)}
+                                        className="p-1 rounded text-xs text-outline hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                                        title="Desagrupar bi-set"
+                                      >
+                                        <X size={11} />
+                                      </button>
+                                    )}
                                     <button onClick={() => isEditingThis ? setEditingItemId(null) : startEditItem(item)} className={`p-1 rounded text-xs transition-colors ${isEditingThis ? 'text-primary' : 'text-outline hover:text-primary hover:bg-gray-100'}`} title="Editar">
                                       <Edit2 size={11} />
                                     </button>
@@ -1445,7 +1523,8 @@ export function GestaoAlunoClient({
                             )
                           })}
                         </div>
-                      )}
+                        )
+                      })()}
                     </div>
                   ))}
                 </div>
