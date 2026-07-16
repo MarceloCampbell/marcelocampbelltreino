@@ -23,22 +23,27 @@ export default async function TreinoAlunoPage() {
     .limit(1)
     .maybeSingle()
 
+  const cicloId = cicloAtivoRes.data?.id
+
   const [sessoesRes, aerobicosRes] = await Promise.all([
-    supabase
-      .from('sessoes_treino')
-      .select(`
-        *,
-        sessao_itens(
-          *,
-          exercicio:exercicios(
-            id, nome, grupo_muscular, video_url, instrucoes, exercicio_substituto_id,
-            substituto:exercicios!exercicio_substituto_id(id, nome, grupo_muscular, video_url)
-          )
-        )
-      `)
-      .eq('aluno_id', aluno.id)
-      .order('ordem', { ascending: true })
-      .limit(20),
+    cicloId
+      ? supabase
+          .from('sessoes_treino')
+          .select(`
+            *,
+            sessao_itens(
+              *,
+              exercicio:exercicios(
+                id, nome, grupo_muscular, video_url, instrucoes, exercicio_substituto_id,
+                substituto:exercicios!exercicio_substituto_id(id, nome, grupo_muscular, video_url)
+              )
+            )
+          `)
+          .eq('aluno_id', aluno.id)
+          .eq('ciclo_id', cicloId)
+          .order('ordem', { ascending: true })
+          .limit(20)
+      : Promise.resolve({ data: [] }),
     supabase
       .from('treinos_aerobicos')
       .select('id, nome, modalidade, duracao_estimada_min, distancia_estimada_km, intensidade_principal, status, data_prevista')
