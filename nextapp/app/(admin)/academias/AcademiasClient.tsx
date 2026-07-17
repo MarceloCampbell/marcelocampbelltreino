@@ -69,7 +69,25 @@ export function AcademiasClient({ academias: initial, exercicios }: { academias:
     } else {
       await supabase.from('exercicio_academias').insert({ academia_id: acadId, exercicio_id: exId, disponivel: true })
     }
-    router.refresh()
+
+    // Update local state without relying on router.refresh() which doesn't update useState
+    const updateAcad = (a: Academia): Academia => {
+      if (a.id !== acadId) return a
+      const hasEntry = a.exercicio_academias.find(ea => ea.exercicio?.id === exId)
+      return {
+        ...a,
+        exercicio_academias: hasEntry
+          ? a.exercicio_academias.map(ea =>
+              ea.exercicio?.id === exId ? { ...ea, disponivel: !disponivel } : ea
+            )
+          : [
+              ...a.exercicio_academias,
+              { id: crypto.randomUUID(), disponivel: true, exercicio: exercicios.find(e => e.id === exId) ?? null },
+            ],
+      }
+    }
+    setAcademias(prev => prev.map(updateAcad))
+    setSelected(prev => (prev ? updateAcad(prev) : null))
   }
 
   const statusColor = (s: string) => s === 'ativo' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'

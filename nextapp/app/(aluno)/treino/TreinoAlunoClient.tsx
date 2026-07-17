@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckCircle2, ChevronDown, ChevronUp, Loader2, X, RefreshCw,
-  Dumbbell, Clock, ChevronRight, Play
+  Dumbbell, Clock, ChevronRight, Play, Maximize2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
@@ -96,7 +96,7 @@ function extractYoutubeId(url: string | null): string | null {
   return m ? m[1] : null
 }
 
-function VideoThumbnail({ url, nome }: { url: string; nome: string }) {
+function VideoThumbnail({ url, nome, size = 'sm' }: { url: string; nome: string; size?: 'sm' | 'lg' }) {
   const [playing, setPlaying] = useState(false)
   const vid = extractYoutubeId(url)
   if (!vid) return null
@@ -112,12 +112,13 @@ function VideoThumbnail({ url, nome }: { url: string; nome: string }) {
       </div>
     )
   }
+  const dims = size === 'lg' ? 'w-24 h-20' : 'w-16 h-12'
   return (
-    <button onClick={() => setPlaying(true)} className="relative w-16 h-12 rounded-lg overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity" title={`Ver: ${nome}`}>
+    <button onClick={() => setPlaying(true)} className={`relative ${dims} rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity`} title={`Ver: ${nome}`}>
       <img src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} alt={nome} className="w-full h-full object-cover" />
       <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-        <div className="w-6 h-6 bg-red-600 rounded-full flex items-center justify-center">
-          <div className="w-0 h-0 border-t-4 border-b-4 border-l-6 border-t-transparent border-b-transparent border-l-white ml-0.5" />
+        <div className="w-7 h-7 bg-red-600 rounded-full flex items-center justify-center shadow">
+          <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[8px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
         </div>
       </div>
     </button>
@@ -143,6 +144,8 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   const [iniciado, setIniciado] = useState(false)
   const [sessionSecs, setSessionSecs] = useState(0)
   const [restTimer, setRestTimer] = useState<{ itemId: string; secs: number } | null>(null)
+  const [restTimerFullscreen, setRestTimerFullscreen] = useState(false)
+  const [restTimerPaused, setRestTimerPaused] = useState(false)
   const isRealizado = sessao.status === 'realizado'
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
 
@@ -153,17 +156,64 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   }, [iniciado])
 
   useEffect(() => {
-    if (!restTimer || restTimer.secs <= 0) return
+    if (!restTimer || restTimer.secs <= 0 || restTimerPaused) return
     const id = setTimeout(() => setRestTimer(r => r && r.secs > 0 ? { ...r, secs: r.secs - 1 } : null), 1000)
     return () => clearTimeout(id)
-  }, [restTimer?.secs, restTimer?.itemId])
+  }, [restTimer?.secs, restTimer?.itemId, restTimerPaused])
 
   function fmt(secs: number) {
     return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`
   }
 
+  function startRestTimer(item: SessaoItem) {
+    setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })
+    setRestTimerFullscreen(true)
+    setRestTimerPaused(false)
+  }
+
+  function stopRestTimer() {
+    setRestTimer(null)
+    setRestTimerFullscreen(false)
+    setRestTimerPaused(false)
+  }
+
   return (
-    <div className={`bg-white rounded-2xl overflow-hidden ${isRealizado ? 'opacity-70' : ''} ${highlight ? 'ring-2 ring-primary shadow-lg' : 'shadow-card'}`}>
+    <div className={`bg-white rounded-2xl overflow-hidden ${highlight ? 'ring-2 ring-primary shadow-lg' : 'shadow-card'}`}>
+
+      {/* Fullscreen rest timer overlay */}
+      {restTimerFullscreen && restTimer && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-secondary/95 text-white">
+          <button
+            onClick={() => setRestTimerFullscreen(false)}
+            className="absolute top-6 right-6 p-2 rounded-full text-white/60 hover:text-white hover:bg-white/10 transition-colors"
+          >
+            <X size={24} />
+          </button>
+          <p className="text-sm font-bold uppercase tracking-widest text-white/50 mb-6">Intervalo</p>
+          <p className="text-[88px] font-extrabold tabular-nums leading-none">
+            {fmt(restTimer.secs)}
+          </p>
+          {restTimer.secs === 0 && (
+            <p className="text-green-400 font-bold text-lg mt-3 animate-pulse">Pronto!</p>
+          )}
+          <div className="flex gap-4 mt-12">
+            <button
+              onClick={() => setRestTimerPaused(p => !p)}
+              className="px-8 py-4 rounded-2xl bg-white/15 hover:bg-white/25 font-bold text-base transition-colors"
+            >
+              {restTimerPaused ? 'Retomar' : 'Pausar'}
+            </button>
+            <button
+              onClick={stopRestTimer}
+              className="px-8 py-4 rounded-2xl bg-white/15 hover:bg-white/25 font-bold text-base transition-colors"
+            >
+              Parar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Card header */}
       <button className="w-full flex items-center gap-4 p-5 text-left" onClick={() => setIsOpen(!isOpen)}>
         <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isRealizado ? 'bg-green-100' : highlight ? 'bg-primary' : 'bg-blue-50'}`}>
           {isRealizado
@@ -196,6 +246,7 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
             </div>
           )}
 
+          {/* Iniciar / Timer row */}
           <div className="px-5 pt-4 pb-1">
             {!iniciado ? (
               <button
@@ -217,20 +268,35 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
             )}
           </div>
 
-          {restTimer && (
+          {/* Progress indicator */}
+          {iniciado && itens.length > 0 && (
+            <div className="px-5 pt-2 pb-0">
+              <p className="text-xs text-outline font-medium">{itens.length} exercício{itens.length !== 1 ? 's' : ''} neste treino</p>
+            </div>
+          )}
+
+          {/* Mini rest timer bar */}
+          {restTimer && !restTimerFullscreen && (
             <div className="mx-5 mt-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-center gap-3">
               <Clock size={16} className="text-orange-500 flex-shrink-0" />
               <div className="flex-1">
                 <p className="text-[10px] text-orange-600 uppercase tracking-wide font-semibold">Intervalo</p>
                 <p className="text-2xl font-bold text-orange-600 tabular-nums leading-none">{fmt(restTimer.secs)}</p>
               </div>
-              <button onClick={() => setRestTimer(null)} className="text-xs text-orange-400 hover:text-orange-600 font-medium">Pular</button>
+              <button
+                onClick={() => setRestTimerFullscreen(true)}
+                className="p-1.5 rounded-lg bg-orange-100 text-orange-500 hover:bg-orange-200 transition-colors"
+                title="Expandir"
+              >
+                <Maximize2 size={14} />
+              </button>
+              <button onClick={stopRestTimer} className="text-xs text-orange-400 hover:text-orange-600 font-medium">Pular</button>
             </div>
           )}
 
-          <div className="p-5 space-y-3">
+          {/* Exercise list */}
+          <div className="p-4 space-y-3">
             {(() => {
-              // Build render groups: single items or bi-set arrays
               const groups: SessaoItem[][] = []
               const seen = new Set<string>()
               for (const item of itens) {
@@ -249,63 +315,86 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
                 const showSubstituto = substitutoAberto === item.id && ex?.substituto
                 const videoToShow = showSubstituto ? ex!.substituto! : ex
                 const isResting = restTimer?.itemId === item.id
+
+                let semanaData: any = null
+                if (item.periodizacao_semanal?.length > 0) {
+                  semanaData = semanaAtual
+                    ? (item.periodizacao_semanal.find((p: any) => p.semana === semanaAtual) ?? item.periodizacao_semanal[0])
+                    : item.periodizacao_semanal[0]
+                }
+                const series = semanaData?.series ?? item.series
+                const repeticoes = semanaData?.repeticoes ?? item.repeticoes
+                const carga = semanaData?.carga_kg ?? item.carga_kg
+                const intervalo = item.descanso_seg
+
                 return (
-                  <div key={item.id} className={`flex items-start gap-4 p-4 ${isBiset ? '' : ''}`}>
+                  <div key={item.id} className="flex gap-3 p-4">
                     <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-secondary">{showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}</p>
-                      {showSubstituto && <p className="text-[10px] text-orange-500 font-medium uppercase tracking-wide">Substituto</p>}
-                      <div className="flex flex-wrap gap-1.5 mt-1">
-                        {item.periodizacao_semanal?.length > 0 ? (() => {
-                          const semanas: any[] = item.periodizacao_semanal
-                          const s = semanaAtual
-                            ? (semanas.find((p: any) => p.semana === semanaAtual) ?? semanas[0])
-                            : semanas[0]
-                          if (!s) return null
-                          return (
-                            <>
-                              {s.series && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{s.series} séries</span>}
-                              {s.repeticoes && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{s.repeticoes} reps</span>}
-                              {s.carga_kg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{s.carga_kg}kg</span>}
-                              {item.descanso_seg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-outline">{item.descanso_seg}s</span>}
-                            </>
-                          )
-                        })() : (
-                          <>
-                            {item.series && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{item.series} séries</span>}
-                            {item.repeticoes && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{item.repeticoes} reps</span>}
-                            {item.carga_kg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-secondary">{item.carga_kg}kg</span>}
-                            {item.descanso_seg && <span className="bg-white border border-outline-variant px-2 py-0.5 rounded text-xs text-outline">{item.descanso_seg}s</span>}
-                          </>
+                      {showSubstituto && (
+                        <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>
+                      )}
+                      <p className="font-bold text-secondary text-base leading-tight">
+                        {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
+                      </p>
+
+                      <div className="mt-2 space-y-1">
+                        {(series || repeticoes) && (
+                          <p className="text-sm text-secondary">
+                            <span className="font-semibold">Séries:</span>{' '}
+                            {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
+                          </p>
+                        )}
+                        {carga && (
+                          <p className="text-sm text-secondary">
+                            <span className="font-semibold">Carga:</span> {carga}kg
+                          </p>
+                        )}
+                        {intervalo && (
+                          <p className="text-sm text-secondary">
+                            <span className="font-semibold">Intervalo:</span> {intervalo}s
+                          </p>
                         )}
                       </div>
-                      {item.observacoes && <p className="text-xs text-primary mt-1">💡 {item.observacoes}</p>}
-                      {ex?.substituto && (
-                        <button
-                          onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
-                          className="flex items-center gap-1 text-xs text-orange-600 font-semibold mt-2 hover:text-orange-700 transition-colors"
-                        >
-                          <RefreshCw size={11} />
-                          {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
-                        </button>
+
+                      {item.observacoes && (
+                        <div className="mt-2.5">
+                          <p className="text-sm font-semibold text-secondary">Instruções:</p>
+                          <p className="text-sm text-outline mt-0.5 leading-snug">{item.observacoes}</p>
+                        </div>
                       )}
+
+                      <div className="flex items-center gap-2 mt-3 flex-wrap">
+                        {ex?.substituto && (
+                          <button
+                            onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
+                            className="flex items-center gap-1 text-xs text-orange-600 font-semibold hover:text-orange-700 transition-colors"
+                          >
+                            <RefreshCw size={11} />
+                            {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
+                          </button>
+                        )}
+                        {iniciado && (
+                          <button
+                            onClick={() => startRestTimer(item)}
+                            className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
+                          >
+                            <Clock size={11} />
+                            {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-2 flex-shrink-0">
-                      {videoToShow?.video_url && <VideoThumbnail url={videoToShow.video_url} nome={videoToShow.nome} />}
-                      {iniciado && (
-                        <button
-                          onClick={() => setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })}
-                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-white border border-outline-variant text-outline hover:text-primary hover:border-primary'}`}
-                        >
-                          <Clock size={11} />
-                          {isResting ? fmt(restTimer!.secs) : fmt(item.descanso_seg ?? 90)}
-                        </button>
-                      )}
-                    </div>
+
+                    {videoToShow?.video_url && (
+                      <div className="flex-shrink-0">
+                        <VideoThumbnail url={videoToShow.video_url} nome={videoToShow.nome} size="lg" />
+                      </div>
+                    )}
                   </div>
                 )
               }
 
-              return groups.map((group, gIdx) => {
+              return groups.map((group) => {
                 if (group.length === 1) {
                   const item = group[0]
                   const isResting = restTimer?.itemId === item.id
@@ -315,7 +404,6 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
                     </div>
                   )
                 }
-                // Bi-set card
                 return (
                   <div key={`biset-${group[0].biset_grupo}`} className="bg-background rounded-xl overflow-hidden border border-primary/20">
                     <div className="px-4 pt-3 pb-1 flex items-center gap-2">
@@ -398,19 +486,18 @@ export function TreinoAlunoClient({
   const [obs, setObs] = useState('')
   const [savingFb, setSavingFb] = useState(false)
   const [substitutoAberto, setSubstitutoAberto] = useState<string | null>(null)
-  const [showConcluidos, setShowConcluidos] = useState(false)
+  const [activeTab, setActiveTab] = useState<'treino' | 'aerobico'>('treino')
 
-  const musculacaoPendentes = sessoes.filter(s => s.status === 'pendente' && s.tipo !== 'aerobico')
-  const concluidas = sessoes.filter(s => s.status === 'realizado' && s.tipo !== 'aerobico')
-  const aerobicosPendentes = aerobicos.filter(a => a.status === 'pendente')
   const semanaInfo = cicloAtivo ? calcSemanaAtual(cicloAtivo.data_inicio, cicloAtivo.data_fim) : null
   const faseInfo = semanaInfo ? MC_FASES[semanaInfo.semana - 1] ?? null : null
 
   const hoje = new Date().getDay()
-  const treinoHoje = musculacaoPendentes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje)
-    ?? musculacaoPendentes[0]
-    ?? null
-  const outrosTreinos = musculacaoPendentes.filter(s => s.id !== treinoHoje?.id)
+  const musculacaoSessoes = sessoes.filter(s => s.tipo !== 'aerobico')
+  const treinoHoje = musculacaoSessoes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje) ?? null
+
+  const now = new Date()
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const aerobicosHoje = aerobicos.filter(a => a.data_prevista === todayStr && a.status !== 'cancelado')
 
   const hora = new Date().getHours()
   const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
@@ -459,7 +546,7 @@ export function TreinoAlunoClient({
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
 
       {/* Saudação */}
       <div>
@@ -485,26 +572,44 @@ export function TreinoAlunoClient({
         </div>
       )}
 
-      {/* Treino de hoje */}
-      {treinoHoje && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-primary"></span>
-            <h2 className="font-bold text-secondary text-sm uppercase tracking-wide">Treino de Hoje</h2>
-          </div>
-          <SessaoCard sessao={treinoHoje} highlight={true} {...cardProps} />
-        </div>
-      )}
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white rounded-xl shadow-card p-1">
+        <button
+          onClick={() => setActiveTab('treino')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'treino' ? 'bg-primary-dark text-white' : 'text-secondary hover:bg-gray-100'}`}
+        >
+          Rotinas de treino
+        </button>
+        <button
+          onClick={() => setActiveTab('aerobico')}
+          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'aerobico' ? 'bg-primary-dark text-white' : 'text-secondary hover:bg-gray-100'}`}
+        >
+          Aeróbico
+          {aerobicosHoje.length > 0 && (
+            <span className={`inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full ${activeTab === 'aerobico' ? 'bg-white/30 text-white' : 'bg-blue-100 text-blue-600'}`}>
+              {aerobicosHoje.length}
+            </span>
+          )}
+        </button>
+      </div>
 
-      {/* Aeróbicos pendentes */}
-      {aerobicosPendentes.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-            <h2 className="font-bold text-secondary text-sm uppercase tracking-wide">Aeróbico</h2>
+      {/* Tab content */}
+      {activeTab === 'treino' ? (
+        treinoHoje ? (
+          <SessaoCard sessao={treinoHoje} highlight={true} {...cardProps} />
+        ) : (
+          <div className="bg-white rounded-2xl shadow-card p-8 text-center">
+            <p className="text-5xl mb-4">🛌</p>
+            <p className="font-bold text-secondary text-xl">Hoje é dia de descanso!</p>
+            <p className="text-sm text-outline mt-2 leading-relaxed max-w-xs mx-auto">
+              Recuperação também é treino — durma bem, se alimente bem e volte mais forte amanhã.
+            </p>
           </div>
+        )
+      ) : (
+        aerobicosHoje.length > 0 ? (
           <div className="space-y-3">
-            {aerobicosPendentes.map(a => (
+            {aerobicosHoje.map(a => (
               <Link key={a.id} href="/aerobicos" className="block bg-white rounded-2xl shadow-card p-5 hover:shadow-md transition-shadow">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
@@ -523,39 +628,15 @@ export function TreinoAlunoClient({
               </Link>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Outros treinos pendentes */}
-      {outrosTreinos.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2 h-2 rounded-full bg-outline-variant"></span>
-            <h2 className="font-bold text-secondary text-sm uppercase tracking-wide">Próximos Treinos</h2>
+        ) : (
+          <div className="bg-white rounded-2xl shadow-card p-8 text-center">
+            <p className="text-5xl mb-4">🏃</p>
+            <p className="font-bold text-secondary text-xl">Sem aeróbico hoje</p>
+            <p className="text-sm text-outline mt-2 leading-relaxed">
+              Nenhum treino aeróbico programado para hoje.
+            </p>
           </div>
-          <div className="space-y-3">
-            {outrosTreinos.map(s => <SessaoCard key={s.id} sessao={s} highlight={false} {...cardProps} />)}
-          </div>
-        </div>
-      )}
-
-      {/* Concluídos */}
-      {concluidas.length > 0 && (
-        <div>
-          <button
-            onClick={() => setShowConcluidos(v => !v)}
-            className="flex items-center gap-2 text-sm text-outline hover:text-secondary transition-colors mb-3"
-          >
-            <CheckCircle2 size={16} className="text-green-500" />
-            <span className="font-semibold">{concluidas.length} treino{concluidas.length > 1 ? 's' : ''} concluído{concluidas.length > 1 ? 's' : ''}</span>
-            {showConcluidos ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-          </button>
-          {showConcluidos && (
-            <div className="space-y-3">
-              {concluidas.map(s => <SessaoCard key={s.id} sessao={s} highlight={false} {...cardProps} />)}
-            </div>
-          )}
-        </div>
+        )
       )}
 
     </div>
