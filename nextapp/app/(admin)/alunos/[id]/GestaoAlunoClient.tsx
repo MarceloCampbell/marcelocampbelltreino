@@ -201,6 +201,7 @@ export function GestaoAlunoClient({
   feedbacks_semanais,
   pendencias,
   anotacoes,
+  academias,
 }: {
   aluno: any
   ciclos: Rotina[]
@@ -208,6 +209,8 @@ export function GestaoAlunoClient({
   feedbacks_semanais: any[]
   pendencias: any[]
   anotacoes: any[]
+  academias: { id: string; nome: string }[]
+  academiasExtrasIds: string[]
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -270,6 +273,10 @@ export function GestaoAlunoClient({
   const [notaError, setNotaError] = useState('')
   const [anotacoesList, setAnotacoesList] = useState(anotacoes)
 
+  // ── Academias extras (item 15)
+  const [academiasExtras, setAcademiasExtras] = useState<Set<string>>(new Set(academiasExtrasIds))
+  const [savingAcademia, setSavingAcademia] = useState<string | null>(null)
+
   // ── Password reset
   const [showResetModal, setShowResetModal] = useState(false)
   const [novaSenha, setNovaSenha] = useState('')
@@ -297,6 +304,7 @@ export function GestaoAlunoClient({
     horario_treino: aluno.horario_treino ?? '',
     objetivo: aluno.objetivo ?? '',
     horario_contato_preferido: aluno.horario_contato_preferido ?? '',
+    academia_id: aluno.academia?.id ?? '',
   })
 
   async function saveDados() {
@@ -318,6 +326,7 @@ export function GestaoAlunoClient({
         horario_treino: dadosForm.horario_treino || null,
         objetivo: dadosForm.objetivo || null,
         horario_contato_preferido: dadosForm.horario_contato_preferido || null,
+        academia_id: dadosForm.academia_id || null,
       } as any).eq('id', aluno.id),
     ])
     setSavingDados(false)
@@ -742,6 +751,18 @@ export function GestaoAlunoClient({
     const res = await fetch(`/api/alunos/${aluno.id}`, { method: 'DELETE' })
     if (res.ok) router.push('/alunos')
     else alert('Erro ao excluir aluno. Tente novamente.')
+  }
+
+  async function toggleAcademiaExtra(acadId: string) {
+    setSavingAcademia(acadId)
+    if (academiasExtras.has(acadId)) {
+      await supabase.from('aluno_academias_extras').delete().eq('aluno_id', aluno.id).eq('academia_id', acadId)
+      setAcademiasExtras(prev => { const s = new Set(prev); s.delete(acadId); return s })
+    } else {
+      await supabase.from('aluno_academias_extras').insert({ aluno_id: aluno.id, academia_id: acadId })
+      setAcademiasExtras(prev => new Set([...prev, acadId]))
+    }
+    setSavingAcademia(null)
   }
 
   // ─── Render helpers ────────────────────────────────────────────────────────
@@ -1848,6 +1869,13 @@ export function GestaoAlunoClient({
                     {['2x','3x','4x','5x','6x+'].map(v => <option key={v} value={v}>{v} por semana</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="label">Academia</label>
+                  <select className="input" value={dadosForm.academia_id} onChange={e => setDadosForm(p => ({ ...p, academia_id: e.target.value }))}>
+                    <option value="">Sem academia associada</option>
+                    {academias.map(a => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                  </select>
+                </div>
               </div>
             ) : (
               <dl className="space-y-3">
@@ -1862,6 +1890,7 @@ export function GestaoAlunoClient({
                   ['Autonomia', aluno.autonomia],
                   ['Frequência', aluno.disciplina],
                   ['Horário', aluno.horario_treino],
+                  ['Academia', aluno.academia?.nome],
                 ].filter(([, v]) => v).map(([k, v]) => (
                   <div key={k as string} className="flex justify-between gap-4">
                     <dt className="text-xs font-semibold text-outline uppercase tracking-wider">{k}</dt>
@@ -1923,6 +1952,41 @@ export function GestaoAlunoClient({
               </div>
             </div>
           </div>
+
+          {/* Academias com Acesso — item 15 */}
+          {academias.length > 0 && (
+            <div className="card md:col-span-2">
+              <h3 className="font-extrabold text-secondary mb-1">Academias com Acesso</h3>
+              <p className="text-xs text-outline mb-4">Academia principal definida nos dados pessoais. Marque abaixo para liberar acesso a academias adicionais.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {academias.map(a => {
+                  const isPrimary = a.id === dadosForm.academia_id || a.id === aluno.academia?.id
+                  const isExtra = academiasExtras.has(a.id)
+                  const isSaving = savingAcademia === a.id
+                  return (
+                    <div
+                      key={a.id}
+                      className={`flex items-center justify-between gap-3 rounded-xl px-4 py-3 transition-colors ${isPrimary ? 'bg-primary/10 border border-primary/30' : isExtra ? 'bg-green-50 border border-green-200' : 'bg-background border border-transparent'}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-semibold text-sm text-secondary truncate">{a.nome}</span>
+                        {isPrimary && <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded flex-shrink-0">Principal</span>}
+                      </div>
+                      {!isPrimary && (
+                        <button
+                          onClick={() => toggleAcademiaExtra(a.id)}
+                          disabled={!!isSaving}
+                          className={`flex-shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${isExtra ? 'bg-green-100 text-green-700 hover:bg-red-50 hover:text-red-600' : 'bg-gray-100 text-outline hover:bg-primary/10 hover:text-primary'}`}
+                        >
+                          {isSaving ? '...' : isExtra ? 'Remover acesso' : 'Liberar acesso'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

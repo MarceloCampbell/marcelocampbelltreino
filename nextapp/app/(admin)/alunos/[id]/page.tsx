@@ -23,7 +23,7 @@ export default async function GestaoAlunoPage({ params }: { params: { id: string
 
   if (!aluno) notFound()
 
-  const [ciclosRes, exerciciosRes, feedbacksRes, pendenciasRes, anotacoesRes] = await Promise.all([
+  const [ciclosRes, exerciciosRes, feedbacksRes, pendenciasRes, anotacoesRes, academiasRes] = await Promise.all([
     supabase
       .from('ciclos')
       .select(`
@@ -43,7 +43,13 @@ export default async function GestaoAlunoPage({ params }: { params: { id: string
     supabase.from('feedbacks_semanais').select('*').eq('aluno_id', params.id).order('semana_referencia', { ascending: false }).limit(8),
     supabase.from('pendencias').select('*').eq('aluno_id', params.id).eq('resolvida', false),
     supabase.from('anotacoes').select('*, autor:usuarios(nome)').eq('aluno_id', params.id).order('criado_em', { ascending: false }),
+    supabase.from('academias').select('id, nome').eq('status', 'ativo').order('nome'),
   ])
+
+  const { data: alunoAcademiasExtras } = await supabase
+    .from('aluno_academias_extras')
+    .select('academia_id')
+    .eq('aluno_id', params.id)
 
   return (
     <>
@@ -56,6 +62,8 @@ export default async function GestaoAlunoPage({ params }: { params: { id: string
           feedbacks_semanais={feedbacksRes.data ?? []}
           pendencias={pendenciasRes.data ?? []}
           anotacoes={anotacoesRes.data ?? []}
+          academias={academiasRes.data ?? []}
+          academiasExtrasIds={(alunoAcademiasExtras ?? []).map(r => r.academia_id)}
         />
       </div>
     </>
