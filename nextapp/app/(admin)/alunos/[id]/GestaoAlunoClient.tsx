@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -279,6 +279,18 @@ export function GestaoAlunoClient({
   const [academiasExtras, setAcademiasExtras] = useState<Set<string>>(new Set(academiasExtrasIds))
   const [savingAcademia, setSavingAcademia] = useState<string | null>(null)
 
+  // ── Undo delete (exercício)
+  const [undoDelete, setUndoDelete] = useState<{
+    itemId: string
+    sessaoId: string
+    item: SessaoItem
+    timeoutId: ReturnType<typeof setTimeout>
+  } | null>(null)
+
+  // ── Autosave (edit rotina form)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // ── Password reset
   const [showResetModal, setShowResetModal] = useState(false)
   const [novaSenha, setNovaSenha] = useState('')
@@ -308,6 +320,28 @@ export function GestaoAlunoClient({
     horario_contato_preferido: aluno.horario_contato_preferido ?? '',
     academia_id: aluno.academia?.id ?? '',
   })
+
+  // Autosave: debounce editRotinaForm changes while editing
+  useEffect(() => {
+    if (!editingRotina || !selectedRotina || !editRotinaForm.nome.trim()) return
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    setAutoSaveStatus('saving')
+    autoSaveTimer.current = setTimeout(async () => {
+      await supabase.from('ciclos').update({
+        nome: editRotinaForm.nome.trim(),
+        objetivo: editRotinaForm.objetivo || null,
+        orientacoes: editRotinaForm.orientacoes || null,
+        data_inicio: editRotinaForm.data_inicio || null,
+        data_fim: editRotinaForm.data_fim || null,
+        visivel_antes_de_iniciar: editRotinaForm.visivel_antes_de_iniciar,
+        ocultar_ao_vencer: editRotinaForm.ocultar_ao_vencer,
+      }).eq('id', selectedRotina.id)
+      setAutoSaveStatus('saved')
+      setTimeout(() => setAutoSaveStatus('idle'), 2000)
+    }, 1500)
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRotinaForm, editingRotina])
 
   async function saveDados() {
     setSavingDados(true)
@@ -440,17 +474,66 @@ export function GestaoAlunoClient({
     setSavingItem(false)
   }
 
-  async function deleteItem(sessaoId: string, itemId: string) {
-    await supabase.from('sessao_itens').delete().eq('id', itemId)
-    setSelectedItemIds(prev => { const s = new Set(prev); s.delete(itemId); return s })
-    const { data: updated } = await supabase
-      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
-      .eq('id', selectedRotina!.id).single()
-    if (updated) {
-      const updatedRotina = updated as unknown as Rotina
-      setSelectedRotina(updatedRotina)
-      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+  function deleteItem(sessaoId: string, itemId: string) {
+    if (!selectedRotina) return
+    // Find the item for potential restore
+    const sessao = selectedRotina.sessoes_treino.find(s => s.id === sessaoId)
+    const item = sessao?.sessao_itens.find(i => i.id === itemId)
+    if (!item) return
+
+    // Clear any existing undo timer
+    if (undoDelete) {
+      clearTimeout(undoDelete.timeoutId)
+      // Confirm the previous pending delete first
+      supabase.from('sessao_itens').delete().eq('id', undoDelete.itemId)
     }
+
+    // Optimistically remove from UI
+    setSelectedItemIds(prev => { const s = new Set(prev); s.delete(itemId); return s })
+    setSelectedRotina(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        sessoes_treino: prev.sessoes_treino.map(s =>
+          s.id === sessaoId ? { ...s, sessao_itens: s.sessao_itens.filter(i => i.id !== itemId) } : s
+        ),
+      }
+    })
+
+    // Schedule actual delete after 5s
+    const timeoutId = setTimeout(async () => {
+      await supabase.from('sessao_itens').delete().eq('id', itemId)
+      setUndoDelete(null)
+      // Sync full rotina state
+      const { data: updated } = await supabase
+        .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+        .eq('id', selectedRotina!.id).single()
+      if (updated) {
+        const updatedRotina = updated as unknown as Rotina
+        setSelectedRotina(updatedRotina)
+        setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+      }
+    }, 5000)
+
+    setUndoDelete({ itemId, sessaoId, item, timeoutId })
+  }
+
+  function undoDeleteItem() {
+    if (!undoDelete) return
+    clearTimeout(undoDelete.timeoutId)
+    // Restore item to UI
+    setSelectedRotina(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        sessoes_treino: prev.sessoes_treino.map(s =>
+          s.id === undoDelete.sessaoId
+            ? { ...s, sessao_itens: [...s.sessao_itens, undoDelete.item].sort((a, b) => a.ordem - b.ordem) }
+            : s
+        ),
+      }
+    })
+    setUndoDelete(null)
   }
 
   async function combinarItems() {
@@ -1055,11 +1138,17 @@ export function GestaoAlunoClient({
                         <label htmlFor="edit-ocultar" className="text-sm text-secondary cursor-pointer">Ocultar do aluno após o término</label>
                       </div>
                     </div>
-                    <div className="flex gap-3 mt-3">
+                    <div className="flex items-center gap-3 mt-3">
                       <button onClick={saveEditRotina} disabled={savingEditRotina || !editRotinaForm.nome.trim()} className="btn-primary text-sm px-5">
                         {savingEditRotina ? 'Salvando...' : 'Salvar'}
                       </button>
-                      <button onClick={() => setEditingRotina(false)} className="btn-ghost text-sm">Cancelar</button>
+                      <button onClick={() => setEditingRotina(false)} className="btn-ghost text-sm">Fechar</button>
+                      {autoSaveStatus === 'saving' && (
+                        <span className="text-xs text-outline ml-auto animate-pulse">Salvando...</span>
+                      )}
+                      {autoSaveStatus === 'saved' && (
+                        <span className="text-xs text-green-600 ml-auto font-semibold">✓ Salvo</span>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -2149,6 +2238,19 @@ export function GestaoAlunoClient({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Undo delete snackbar */}
+      {undoDelete && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-secondary text-white px-5 py-3 rounded-2xl shadow-xl">
+          <span className="text-sm font-semibold">Exercício removido</span>
+          <button
+            onClick={undoDeleteItem}
+            className="text-sm font-bold text-yellow-300 hover:text-yellow-200 transition-colors underline"
+          >
+            Desfazer
+          </button>
         </div>
       )}
 
