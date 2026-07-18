@@ -136,9 +136,21 @@ export function AlunosList({ alunos }: { alunos: AlunoItem[] }) {
       </div>
 
       {filtrados.length === 0 && (
-        <div className="text-center py-16 text-outline">
-          <p className="font-semibold">Nenhum aluno {statusFilter === 'inativo' ? 'inativo' : ''} encontrado</p>
-          <p className="text-sm mt-1">Tente ajustar o filtro de busca</p>
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
+            <Search size={28} className="text-gray-400" />
+          </div>
+          <p className="font-bold text-secondary text-lg">Nenhum aluno encontrado</p>
+          <p className="text-sm text-outline mt-1 max-w-xs">
+            {search
+              ? `Não encontramos nenhum aluno com "${search}". Tente outro nome ou e-mail.`
+              : `Não há alunos ${statusFilter === 'inativo' ? 'inativos' : 'ativos'} cadastrados.`}
+          </p>
+          {search && (
+            <button onClick={() => setSearch('')} className="mt-4 text-sm font-semibold text-primary hover:underline">
+              Limpar busca
+            </button>
+          )}
         </div>
       )}
     </div>

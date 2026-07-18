@@ -196,15 +196,29 @@ export function AerobicosAlunoClient({ alunoId, aerobicos: initial }: { alunoId:
           <div className="space-y-3">{pendentes.map(a => <Card key={a.id} aerobico={a} />)}</div>
         </div>
       )}
+
+      {pendentes.length === 0 && aerobicos.length > 0 && (
+        <div className="flex flex-col items-center justify-center py-12 text-center mb-8">
+          <p className="text-4xl mb-3">✅</p>
+          <p className="font-bold text-secondary text-lg">Nenhum aeróbico pendente!</p>
+          <p className="text-sm text-outline mt-1">Você está em dia com os treinos aeróbicos.</p>
+        </div>
+      )}
+
+      {aerobicos.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <p className="text-5xl mb-4">🏃</p>
+          <p className="font-bold text-secondary text-xl">Nenhum treino aeróbico prescrito</p>
+          <p className="text-sm text-outline mt-2 max-w-xs leading-relaxed">
+            Quando seu treinador prescrever sessões aeróbicas, elas aparecerão aqui.
+          </p>
+        </div>
+      )}
+
       {concluidos.length > 0 && (
         <div>
           <h2 className="font-extrabold text-secondary mb-4">Concluídos</h2>
           <div className="space-y-3">{concluidos.map(a => <Card key={a.id} aerobico={a} />)}</div>
-        </div>
-      )}
-      {aerobicos.length === 0 && (
-        <div className="text-center py-16 text-outline">
-          <p className="font-semibold text-lg">Nenhum treino aeróbico prescrito ainda</p>
         </div>
       )}
     </div>
