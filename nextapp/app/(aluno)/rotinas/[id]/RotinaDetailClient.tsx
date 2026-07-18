@@ -78,7 +78,7 @@ function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; siz
   const dims = size === 'lg' ? 'w-24 h-20' : 'w-16 h-12'
   return (
     <button onClick={() => setPlaying(true)} className={`relative ${dims} rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity`} title={`Ver: ${nome}`}>
-      <img src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} alt={nome} className="w-full h-full object-cover" />
+      <img src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
       <div className="absolute inset-0 flex items-center justify-center bg-black/30">
         <div className="w-7 h-7 bg-red-600 rounded-full flex items-center justify-center shadow">
           <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[8px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
