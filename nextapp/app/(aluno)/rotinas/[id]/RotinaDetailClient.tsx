@@ -110,6 +110,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   const [obs, setObs] = useState('')
   const [savingFb, setSavingFb] = useState(false)
   const [isRealizado, setIsRealizado] = useState(sessao.status === 'realizado')
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
 
@@ -143,26 +144,40 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
 
   async function marcarRealizado() {
     setCompleting(true)
-    await supabase.from('sessoes_treino').update({ status: 'realizado' }).eq('id', sessao.id)
-    setIsRealizado(true)
-    setFeedbackOpen(true)
-    setCompleting(false)
+    setActionError(null)
+    try {
+      const { error: err } = await supabase.from('sessoes_treino').update({ status: 'realizado' }).eq('id', sessao.id)
+      if (err) throw err
+      setIsRealizado(true)
+      setFeedbackOpen(true)
+    } catch {
+      setActionError('Não conseguimos salvar. Tentar de novo?')
+    } finally {
+      setCompleting(false)
+    }
   }
 
   async function enviarFeedback() {
     setSavingFb(true)
-    await supabase.from('feedbacks_treino').insert({
-      aluno_id: alunoId,
-      sessao_id: sessao.id,
-      completou: true,
-      pse_final: pse,
-      sentiu_dor: dor,
-      observacoes_livres: obs || null,
-    })
-    setFeedbackOpen(false)
-    setPse(5); setDor(false); setObs('')
-    setSavingFb(false)
-    router.refresh()
+    setActionError(null)
+    try {
+      const { error: err } = await supabase.from('feedbacks_treino').insert({
+        aluno_id: alunoId,
+        sessao_id: sessao.id,
+        completou: true,
+        pse_final: pse,
+        sentiu_dor: dor,
+        observacoes_livres: obs || null,
+      })
+      if (err) throw err
+      setFeedbackOpen(false)
+      setPse(5); setDor(false); setObs('')
+      router.refresh()
+    } catch {
+      setActionError('Não conseguimos enviar o feedback. Tentar de novo?')
+    } finally {
+      setSavingFb(false)
+    }
   }
 
   return (
@@ -391,6 +406,13 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
               })
             })()}
           </div>
+
+          {actionError && (
+            <div className="mx-5 mb-3 flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl px-4 py-3">
+              <span>{actionError}</span>
+              <button onClick={() => setActionError(null)} className="text-red-500 hover:text-red-700 font-bold text-xs underline flex-shrink-0">Fechar</button>
+            </div>
+          )}
 
           {!isRealizado && !feedbackOpen && (
             <div className="px-5 pb-5">

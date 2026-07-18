@@ -60,31 +60,46 @@ export function AerobicosAlunoClient({ alunoId, aerobicos: initial }: { alunoId:
   const [dor, setDor] = useState(false)
   const [obs, setObs] = useState('')
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const pendentes = aerobicos.filter(a => a.status === 'pendente')
   const concluidos = aerobicos.filter(a => a.status !== 'pendente')
 
   async function marcar(id: string) {
     setCompleting(id)
-    await supabase.from('treinos_aerobicos').update({ status: 'realizado' }).eq('id', id)
-    setAerobicos(prev => prev.map(a => a.id === id ? { ...a, status: 'realizado' } : a))
-    setShowFb(id)
-    setCompleting(null)
+    setError(null)
+    try {
+      const { error: err } = await supabase.from('treinos_aerobicos').update({ status: 'realizado' }).eq('id', id)
+      if (err) throw err
+      setAerobicos(prev => prev.map(a => a.id === id ? { ...a, status: 'realizado' } : a))
+      setShowFb(id)
+    } catch {
+      setError('Não conseguimos salvar. Tente de novo.')
+    } finally {
+      setCompleting(null)
+    }
   }
 
   async function enviarFb(id: string) {
     setSaving(true)
-    await supabase.from('feedbacks_treino').insert({
-      aluno_id: alunoId,
-      treino_aerobico_id: id,
-      completou: true,
-      pse_final: pse,
-      sentiu_dor: dor,
-      observacoes_livres: obs || null,
-    })
-    setShowFb(null)
-    setPse(5); setDor(false); setObs('')
-    setSaving(false)
+    setError(null)
+    try {
+      const { error: err } = await supabase.from('feedbacks_treino').insert({
+        aluno_id: alunoId,
+        treino_aerobico_id: id,
+        completou: true,
+        pse_final: pse,
+        sentiu_dor: dor,
+        observacoes_livres: obs || null,
+      })
+      if (err) throw err
+      setShowFb(null)
+      setPse(5); setDor(false); setObs('')
+    } catch {
+      setError('Não conseguimos enviar o feedback. Tente de novo.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   function Card({ aerobico }: { aerobico: Aerobico }) {
@@ -190,6 +205,12 @@ export function AerobicosAlunoClient({ alunoId, aerobicos: initial }: { alunoId:
 
   return (
     <div>
+      {error && (
+        <div className="mb-4 flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl px-4 py-3">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold text-xs underline flex-shrink-0">Fechar</button>
+        </div>
+      )}
       {pendentes.length > 0 && (
         <div className="mb-8">
           <h2 className="font-extrabold text-secondary mb-4">Aeróbicos Pendentes</h2>
