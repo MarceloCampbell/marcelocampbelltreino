@@ -113,6 +113,13 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   const [isRealizado, setIsRealizado] = useState(sessao.status === 'realizado')
   const [actionError, setActionError] = useState<string | null>(null)
 
+  // Fase 4 — execution tracking
+  const [workoutSessionId, setWorkoutSessionId] = useState<string | null>(null)
+  const [setsDone, setSetsDone] = useState<Record<string, Set<number>>>({})
+  const [showReasonPicker, setShowReasonPicker] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const [showSummary, setShowSummary] = useState(false)
+
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
 
   useEffect(() => {
@@ -145,19 +152,91 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
     setRestTimerPaused(false)
   }
 
-  async function marcarRealizado() {
+  const totalSets = itens.reduce((sum, item) => sum + (item.series ?? 0), 0)
+  const completedSets = Object.values(setsDone).reduce((sum, s) => sum + s.size, 0)
+
+  function parseReps(r: string | null): number {
+    if (!r) return 0
+    const n = parseInt(r)
+    return isNaN(n) ? 0 : n
+  }
+
+  function calcVolume(): number {
+    return itens.reduce((total, item) => {
+      const done = setsDone[item.id]?.size ?? 0
+      if (!done) return total
+      return total + (item.carga_kg ?? 0) * parseReps(item.repeticoes) * done
+    }, 0)
+  }
+
+  async function iniciarTreino() {
+    setIniciado(true)
+    setSessionSecs(0)
+    try {
+      const { data } = await supabase.from('workout_sessions').insert({
+        aluno_id: alunoId,
+        sessao_id: sessao.id,
+        iniciado_em: new Date().toISOString(),
+        status: 'em_andamento',
+      }).select('id').single()
+      if (data) setWorkoutSessionId(data.id)
+    } catch { /* non-critical */ }
+  }
+
+  async function toggleSet(item: SessaoItem, setNum: number) {
+    const isDone = setsDone[item.id]?.has(setNum)
+    setSetsDone(prev => {
+      const s = new Set(prev[item.id] ?? [])
+      isDone ? s.delete(setNum) : s.add(setNum)
+      return { ...prev, [item.id]: s }
+    })
+    if (!workoutSessionId) return
+    if (isDone) {
+      await supabase.from('set_executions')
+        .delete()
+        .eq('session_id', workoutSessionId)
+        .eq('sessao_item_id', item.id)
+        .eq('numero_serie', setNum)
+    } else {
+      await supabase.from('set_executions').insert({
+        session_id: workoutSessionId,
+        sessao_item_id: item.id,
+        numero_serie: setNum,
+        carga_registrada: item.carga_kg ?? null,
+        concluida: true,
+      })
+    }
+  }
+
+  async function finalizarTreino(motivoIncompleto?: string) {
     setCompleting(true)
     setActionError(null)
     try {
       const { error: err } = await supabase.from('sessoes_treino').update({ status: 'realizado' }).eq('id', sessao.id)
       if (err) throw err
       setIsRealizado(true)
-      setFeedbackOpen(true)
+      if (workoutSessionId) {
+        await supabase.from('workout_sessions').update({
+          concluido_em: new Date().toISOString(),
+          status: motivoIncompleto ? 'incompleto' : 'concluido',
+          motivo_incompleto: motivoIncompleto ?? null,
+        }).eq('id', workoutSessionId)
+      }
+      setShowReasonPicker(false)
+      setShowSummary(true)
     } catch {
       setActionError('Não conseguimos salvar. Tentar de novo?')
     } finally {
       setCompleting(false)
     }
+  }
+
+  async function marcarRealizado() {
+    if (completedSets < totalSets && totalSets > 0) {
+      setShowReasonPicker(true)
+      return
+    }
+    await finalizarTreino()
   }
 
   async function enviarFeedback() {
@@ -173,6 +252,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
         observacoes_livres: obs || null,
       })
       if (err) throw err
+      setShowSummary(false)
       setFeedbackOpen(false)
       setPse(5); setDor(false); setObs('')
       router.refresh()
@@ -251,7 +331,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
 
           <div className="px-5 pt-4 pb-1">
             {!iniciado ? (
-              <button onClick={() => { setIniciado(true); setSessionSecs(0) }} className="btn-primary w-full">
+              <button onClick={iniciarTreino} className="btn-primary w-full">
                 <Play size={15} />
                 {isRealizado ? 'Refazer Treino' : 'Iniciar Treino'}
               </button>
@@ -377,6 +457,32 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                         </div>
                       )}
 
+                      {/* Per-set completion circles */}
+                      {iniciado && (series ?? 0) > 0 && (
+                        <div className="flex items-center gap-1.5 mt-3">
+                          {Array.from({ length: series as number }).map((_, i) => {
+                            const setNum = i + 1
+                            const done = setsDone[item.id]?.has(setNum)
+                            return (
+                              <button
+                                key={setNum}
+                                onClick={() => toggleSet(item, setNum)}
+                                className={`w-7 h-7 rounded-full border-2 text-xs font-bold transition-all ${
+                                  done
+                                    ? 'bg-green-500 border-green-500 text-white'
+                                    : 'bg-white border-gray-300 text-gray-400 hover:border-green-400'
+                                }`}
+                              >
+                                {setNum}
+                              </button>
+                            )
+                          })}
+                          <span className="text-xs text-outline ml-1">
+                            {setsDone[item.id]?.size ?? 0}/{series} séries
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
                         {ex?.substituto && (
                           <button
@@ -439,18 +545,68 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
             </div>
           )}
 
-          {!isRealizado && !feedbackOpen && (
+          {/* Reason picker — incomplete sets */}
+          {showReasonPicker && (
+            <div className="mx-5 mb-4 bg-orange-50 border border-orange-200 rounded-2xl p-5">
+              <p className="font-bold text-secondary mb-1">Séries incompletas ({completedSets}/{totalSets})</p>
+              <p className="text-sm text-outline mb-4">Qual foi o motivo?</p>
+              <div className="grid grid-cols-2 gap-2">
+                {['Máquina ocupada', 'Dor ou desconforto', 'Falta de tempo', 'Outro'].map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setMotivo(m)}
+                    className={`text-sm font-semibold py-2.5 px-3 rounded-xl border transition-all ${motivo === m ? 'bg-primary text-white border-primary' : 'bg-white text-secondary border-outline-variant hover:border-primary'}`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button
+                  onClick={() => finalizarTreino(motivo || 'Não informado')}
+                  disabled={completing}
+                  className="btn-primary flex-1"
+                >
+                  {completing ? <Loader2 size={14} className="animate-spin" /> : null}
+                  Concluir assim mesmo
+                </button>
+                <button onClick={() => setShowReasonPicker(false)} className="btn-ghost text-sm">Cancelar</button>
+              </div>
+            </div>
+          )}
+
+          {!isRealizado && !showReasonPicker && !showSummary && (
             <div className="px-5 pb-5">
               <button onClick={marcarRealizado} disabled={completing} className="btn-primary w-full">
                 {completing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                {completing ? 'Marcando...' : 'Marcar como Concluído'}
+                {completing ? 'Salvando...' : 'Marcar como Concluído'}
               </button>
             </div>
           )}
 
-          {feedbackOpen && (
-            <div className="px-5 pb-5 bg-blue-50 border-t border-blue-100">
-              <h4 className="font-bold text-secondary mb-3 mt-3">Como foi o treino?</h4>
+          {/* Summary screen */}
+          {showSummary && (
+            <div className="px-5 pb-5 bg-green-50 border-t border-green-100">
+              <div className="py-4 text-center">
+                <p className="text-3xl mb-1">🏆</p>
+                <p className="font-extrabold text-secondary text-lg">Treino concluído!</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-5">
+                <div className="bg-white rounded-xl p-3 text-center">
+                  <p className="text-lg font-extrabold text-primary">{fmt(sessionSecs)}</p>
+                  <p className="text-[10px] text-outline uppercase tracking-wide mt-0.5">Duração</p>
+                </div>
+                <div className="bg-white rounded-xl p-3 text-center">
+                  <p className="text-lg font-extrabold text-primary">{completedSets}/{totalSets}</p>
+                  <p className="text-[10px] text-outline uppercase tracking-wide mt-0.5">Séries</p>
+                </div>
+                <div className="bg-white rounded-xl p-3 text-center">
+                  <p className="text-lg font-extrabold text-primary">{calcVolume().toFixed(0)}</p>
+                  <p className="text-[10px] text-outline uppercase tracking-wide mt-0.5">Volume kg</p>
+                </div>
+              </div>
+
+              <h4 className="font-bold text-secondary mb-3">Como foi?</h4>
               <div className="space-y-3">
                 <div>
                   <label className="label">PSE (Percepção de Esforço 1–10)</label>
