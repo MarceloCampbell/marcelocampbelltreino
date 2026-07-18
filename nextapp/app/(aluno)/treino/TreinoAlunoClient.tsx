@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 
 type ExercicioBase = {
   id: string
@@ -477,6 +478,7 @@ export function TreinoAlunoClient({
 }) {
   const supabase = createClient()
   const router = useRouter()
+  const { refreshing } = usePullToRefresh()
   const [completing, setCompleting] = useState<string | null>(null)
   const [feedbackSessao, setFeedbackSessao] = useState<string | null>(null)
   const [pse, setPse] = useState(5)
@@ -544,6 +546,13 @@ export function TreinoAlunoClient({
 
   return (
     <div className="space-y-6">
+
+      {refreshing && (
+        <div className="flex items-center justify-center gap-2 py-2 text-sm text-outline">
+          <RefreshCw size={14} className="animate-spin" />
+          <span>Atualizando...</span>
+        </div>
+      )}
 
       {/* Saudação */}
       <div>

@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, CheckCircle2, Loader2, MapPin, Clock, Zap } from 'lucide-react'
+import { ChevronDown, ChevronUp, CheckCircle2, Loader2, MapPin, Clock, Zap, RefreshCw } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { usePullToRefresh } from '@/hooks/usePullToRefresh'
 
 type Bloco = {
   id: string
@@ -52,6 +53,7 @@ const blocoLabel: Record<string, string> = {
 
 export function AerobicosAlunoClient({ alunoId, aerobicos: initial }: { alunoId: string; aerobicos: Aerobico[] }) {
   const supabase = createClient()
+  const { refreshing } = usePullToRefresh()
   const [aerobicos, setAerobicos] = useState(initial)
   const [expanded, setExpanded] = useState<string | null>(initial.find(a => a.status === 'pendente')?.id ?? null)
   const [completing, setCompleting] = useState<string | null>(null)
@@ -205,6 +207,12 @@ export function AerobicosAlunoClient({ alunoId, aerobicos: initial }: { alunoId:
 
   return (
     <div>
+      {refreshing && (
+        <div className="flex items-center justify-center gap-2 py-3 text-sm text-outline mb-2">
+          <RefreshCw size={14} className="animate-spin" />
+          <span>Atualizando...</span>
+        </div>
+      )}
       {error && (
         <div className="mb-4 flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl px-4 py-3">
           <span>{error}</span>
