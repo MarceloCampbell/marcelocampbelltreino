@@ -102,6 +102,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   const [restTimer, setRestTimer] = useState<{ itemId: string; secs: number } | null>(null)
   const [restTimerFullscreen, setRestTimerFullscreen] = useState(false)
   const [restTimerPaused, setRestTimerPaused] = useState(false)
+  const [progressIdx, setProgressIdx] = useState(0)
   const [substitutoAberto, setSubstitutoAberto] = useState<string | null>(null)
   const [completing, setCompleting] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -131,6 +132,8 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   }
 
   function startRestTimer(item: SessaoItem) {
+    const idx = itens.findIndex(i => i.id === item.id)
+    if (idx !== -1) setProgressIdx(p => Math.max(p, idx + 1))
     setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })
     setRestTimerFullscreen(true)
     setRestTimerPaused(false)
@@ -280,6 +283,28 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                 <Maximize2 size={14} />
               </button>
               <button onClick={stopRestTimer} className="text-xs text-orange-400 hover:text-orange-600 font-medium">Pular</button>
+            </div>
+          )}
+
+          {/* Exercise progress */}
+          {iniciado && itens.length > 0 && (
+            <div className="mx-5 mt-3">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-outline">
+                  {progressIdx === 0 ? `${itens.length} exercícios` : `Exercício ${progressIdx} de ${itens.length}`}
+                </span>
+                {progressIdx > 0 && (
+                  <span className="text-xs text-primary font-bold">{Math.round((progressIdx / itens.length) * 100)}%</span>
+                )}
+              </div>
+              {progressIdx > 0 && (
+                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${(progressIdx / itens.length) * 100}%` }}
+                  />
+                </div>
+              )}
             </div>
           )}
 
