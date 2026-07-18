@@ -202,6 +202,7 @@ export function GestaoAlunoClient({
   pendencias,
   anotacoes,
   academias,
+  academiasExtrasIds,
 }: {
   aluno: any
   ciclos: Rotina[]
