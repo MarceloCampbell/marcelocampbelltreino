@@ -100,7 +100,7 @@ const MC_MODELO: { series: string; repeticoes: string; fase: string; missao: str
   { series: '3', repeticoes: '8-10', fase: 'Fechamento', missao: 'Avaliar sua evolução, celebrar suas conquistas e iniciar o próximo ciclo ainda melhor.', mensagem: 'Semana de Fechamento do Ciclo. Compare sua evolução com o início do programa, registre suas conquistas e prepare-se para iniciar um novo ciclo em um nível ainda mais alto.' },
 ]
 
-const TABS = ['Treinos', 'Dados', 'Ficha Saúde', 'Anotações', 'Feedbacks', 'Pontuação / Evolução']
+const TABS = ['Treinos', 'Aeróbico', 'Dados', 'Ficha Saúde', 'Anotações', 'Feedbacks', 'Pontuação / Evolução']
 const DIA_LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
 const DIAS_SEMANA = [
   { value: '', label: 'Sem dia' },
@@ -113,6 +113,7 @@ const DIAS_SEMANA = [
   { value: '0', label: 'Domingo' },
 ]
 const TIPOS_AEROBICO = ['Longão', 'Sprints / Tiros', 'Fartlek', 'Regenerativo', 'Intervalado', 'Ritmo', 'Progressivo', 'Outro']
+const MODALIDADES_AEROBICO = ['Esteira', 'Escada', 'Bicicleta', 'Elíptico']
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -232,7 +233,7 @@ export function GestaoAlunoClient({
   })
   const [savingRotina, setSavingRotina] = useState(false)
   const [editingRotina, setEditingRotina] = useState(false)
-  const [editRotinaForm, setEditRotinaForm] = useState({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '' })
+  const [editRotinaForm, setEditRotinaForm] = useState({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '', visivel_antes_de_iniciar: true, ocultar_ao_vencer: false })
   const [savingEditRotina, setSavingEditRotina] = useState(false)
 
   // ── Bi-set selection
@@ -364,7 +365,7 @@ export function GestaoAlunoClient({
       orientacoes: novaRotina.orientacoes || null,
       data_inicio: novaRotina.data_inicio || null,
       data_fim: novaRotina.data_fim || null,
-      tipo: novaRotina.tipo,
+      tipo: tab === 1 ? 'aerobico' : novaRotina.tipo,
       visivel_antes_de_iniciar: novaRotina.visivel_antes_de_iniciar,
       ocultar_ao_vencer: novaRotina.ocultar_ao_vencer,
       status: 'ativo',
@@ -386,6 +387,8 @@ export function GestaoAlunoClient({
       orientacoes: editRotinaForm.orientacoes || null,
       data_inicio: editRotinaForm.data_inicio || null,
       data_fim: editRotinaForm.data_fim || null,
+      visivel_antes_de_iniciar: editRotinaForm.visivel_antes_de_iniciar,
+      ocultar_ao_vencer: editRotinaForm.ocultar_ao_vencer,
     }).eq('id', selectedRotina.id).select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))').single()
     if (data) {
       const updated = data as unknown as Rotina
@@ -644,7 +647,7 @@ export function GestaoAlunoClient({
       aluno_id: aluno.id,
       ciclo_id: selectedRotina.id,
       nome: nomeSessao,
-      tipo: novaDia.tipo,
+      tipo: tab === 1 ? 'aerobico' : novaDia.tipo,
       dia_letra: novaDia.dia_letra,
       dia_semana_numero: novaDia.dia_semana_numero ? parseInt(novaDia.dia_semana_numero) : null,
       orientacoes_aluno: novaDia.orientacoes_aluno || null,
@@ -655,7 +658,7 @@ export function GestaoAlunoClient({
     }).select('*, sessao_itens(*)').single()
 
     if (!error && sessao) {
-      if (sessaoItens.length > 0 && novaDia.tipo !== 'aerobico') {
+      if (sessaoItens.length > 0 && tab !== 1 && novaDia.tipo !== 'aerobico') {
         await supabase.from('sessao_itens').insert(sessaoItens.map((it, idx) => ({
           sessao_id: sessao.id,
           exercicio_id: it.exercicio_id,
@@ -769,6 +772,8 @@ export function GestaoAlunoClient({
   // ─── Render helpers ────────────────────────────────────────────────────────
 
   const rotinasFiltradas = ciclosList.filter(c => {
+    if (tab === 0 && c.tipo === 'aerobico') return false
+    if (tab === 1 && c.tipo !== 'aerobico') return false
     if (rotinaView === 'ativa') return isRotinaAtiva(c.status)
     if (rotinaView === 'arquivada') return isRotinaArquivada(c.status)
     return isRotinaExcluida(c.status)
@@ -867,8 +872,8 @@ export function GestaoAlunoClient({
         ))}
       </div>
 
-      {/* ── TAB 0: Treinos ─────────────────────────────────────────────────── */}
-      {tab === 0 && (
+      {/* ── TAB 0/1: Treinos / Aeróbico ────────────────────────────────────── */}
+      {(tab === 0 || tab === 1) && (
         <div>
           {!selectedRotina ? (
             // ── Rotina list view
@@ -897,7 +902,7 @@ export function GestaoAlunoClient({
               {showNovaRotina && (
                 <div className="card mb-4 border-2 border-primary">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-extrabold text-secondary">Nova Rotina de Treino</h3>
+                    <h3 className="font-extrabold text-secondary">{tab === 1 ? 'Nova Rotina Aeróbica' : 'Nova Rotina de Treino'}</h3>
                     <button onClick={() => setShowNovaRotina(false)} className="text-outline hover:text-secondary"><X size={18} /></button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -909,13 +914,15 @@ export function GestaoAlunoClient({
                       <label className="label">Objetivo</label>
                       <input className="input" placeholder="Ex: Ganho de massa" value={novaRotina.objetivo} onChange={e => setNovaRotina(p => ({ ...p, objetivo: e.target.value }))} />
                     </div>
-                    <div>
-                      <label className="label">Tipo</label>
-                      <select className="input" value={novaRotina.tipo} onChange={e => setNovaRotina(p => ({ ...p, tipo: e.target.value }))}>
-                        <option value="musculacao">Musculação</option>
-                        <option value="aerobico">Aeróbico</option>
-                      </select>
-                    </div>
+                    {tab === 0 && (
+                      <div>
+                        <label className="label">Tipo</label>
+                        <select className="input" value={novaRotina.tipo} onChange={e => setNovaRotina(p => ({ ...p, tipo: e.target.value }))}>
+                          <option value="musculacao">Musculação</option>
+                          <option value="aerobico">Aeróbico</option>
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="label">Data de início</label>
                       <input type="date" className="input" value={novaRotina.data_inicio} onChange={e => setNovaRotina(p => ({ ...p, data_inicio: e.target.value }))} />
@@ -1038,6 +1045,16 @@ export function GestaoAlunoClient({
                         <input type="date" className="input" value={editRotinaForm.data_fim} onChange={e => setEditRotinaForm(p => ({ ...p, data_fim: e.target.value }))} />
                       </div>
                     </div>
+                    <div className="flex flex-col gap-2 mt-2">
+                      <div className="flex items-center gap-3">
+                        <input type="checkbox" id="edit-visivel" className="w-4 h-4" checked={editRotinaForm.visivel_antes_de_iniciar} onChange={e => setEditRotinaForm(p => ({ ...p, visivel_antes_de_iniciar: e.target.checked }))} />
+                        <label htmlFor="edit-visivel" className="text-sm text-secondary cursor-pointer">Aluno pode ver antes de iniciar</label>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input type="checkbox" id="edit-ocultar" className="w-4 h-4" checked={editRotinaForm.ocultar_ao_vencer} onChange={e => setEditRotinaForm(p => ({ ...p, ocultar_ao_vencer: e.target.checked }))} />
+                        <label htmlFor="edit-ocultar" className="text-sm text-secondary cursor-pointer">Ocultar do aluno após o término</label>
+                      </div>
+                    </div>
                     <div className="flex gap-3 mt-3">
                       <button onClick={saveEditRotina} disabled={savingEditRotina || !editRotinaForm.nome.trim()} className="btn-primary text-sm px-5">
                         {savingEditRotina ? 'Salvando...' : 'Salvar'}
@@ -1074,6 +1091,8 @@ export function GestaoAlunoClient({
                           orientacoes: selectedRotina.orientacoes ?? '',
                           data_inicio: selectedRotina.data_inicio ?? '',
                           data_fim: selectedRotina.data_fim ?? '',
+                          visivel_antes_de_iniciar: selectedRotina.visivel_antes_de_iniciar,
+                          ocultar_ao_vencer: selectedRotina.ocultar_ao_vencer,
                         })
                         setEditingRotina(true)
                       }}
@@ -1570,13 +1589,15 @@ export function GestaoAlunoClient({
                         {DIAS_SEMANA.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                       </select>
                     </div>
-                    <div>
-                      <label className="label">Tipo</label>
-                      <select className="input" value={novaDia.tipo} onChange={e => setNovaDia(p => ({ ...p, tipo: e.target.value }))}>
-                        <option value="musculacao">Musculação</option>
-                        <option value="aerobico">Aeróbico</option>
-                      </select>
-                    </div>
+                    {tab === 0 && (
+                      <div>
+                        <label className="label">Tipo</label>
+                        <select className="input" value={novaDia.tipo} onChange={e => setNovaDia(p => ({ ...p, tipo: e.target.value }))}>
+                          <option value="musculacao">Musculação</option>
+                          <option value="aerobico">Aeróbico</option>
+                        </select>
+                      </div>
+                    )}
                     <div>
                       <label className="label">Nome (opcional)</label>
                       <input className="input" placeholder={`Treino ${novaDia.dia_letra}`} value={novaDia.nome} onChange={e => setNovaDia(p => ({ ...p, nome: e.target.value }))} />
@@ -1589,13 +1610,13 @@ export function GestaoAlunoClient({
                   </div>
 
                   {/* Aerobico: tipo + description */}
-                  {novaDia.tipo === 'aerobico' && (
+                  {(tab === 1 || novaDia.tipo === 'aerobico') && (
                     <div className="space-y-3 mb-4">
                       <div>
-                        <label className="label">Tipo de treino aeróbico</label>
+                        <label className="label">{tab === 1 ? 'Modalidade' : 'Tipo de treino aeróbico'}</label>
                         <select className="input" value={novaDia.tipo_aerobico} onChange={e => setNovaDia(p => ({ ...p, tipo_aerobico: e.target.value }))}>
                           <option value="">— Selecionar —</option>
-                          {TIPOS_AEROBICO.map(t => <option key={t} value={t}>{t}</option>)}
+                          {(tab === 1 ? MODALIDADES_AEROBICO : TIPOS_AEROBICO).map(t => <option key={t} value={t}>{t}</option>)}
                         </select>
                       </div>
                       <div>
@@ -1606,7 +1627,7 @@ export function GestaoAlunoClient({
                   )}
 
                   {/* Musculacao: exercise picker + periodization */}
-                  {novaDia.tipo === 'musculacao' && (
+                  {tab === 0 && novaDia.tipo === 'musculacao' && (
                     <div>
                       <div className="flex items-center justify-between mb-3">
                         <p className="label">Semanas de periodização</p>
@@ -1789,8 +1810,8 @@ export function GestaoAlunoClient({
         </div>
       )}
 
-      {/* ── TAB 1: Dados ───────────────────────────────────────────────────── */}
-      {tab === 1 && (
+      {/* ── TAB 2: Dados ───────────────────────────────────────────────────── */}
+      {tab === 2 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="card">
             <div className="flex items-center justify-between mb-4">
@@ -1921,7 +1942,7 @@ export function GestaoAlunoClient({
             <div className="mt-4 pt-4 border-t border-outline-variant">
               <p className="text-xs font-semibold text-outline uppercase tracking-wider mb-3">Ações do Administrador</p>
               <div className="space-y-2">
-                <button onClick={() => { setTab(3); }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
+                <button onClick={() => { setTab(4); }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
                   <Plus size={14} /> Nova Anotação
                 </button>
                 <button onClick={() => { setShowResetModal(true); setResetMsg('') }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
@@ -1991,8 +2012,8 @@ export function GestaoAlunoClient({
         </div>
       )}
 
-      {/* ── TAB 2: Ficha Saúde ─────────────────────────────────────────────── */}
-      {tab === 2 && (
+      {/* ── TAB 3: Ficha Saúde ─────────────────────────────────────────────── */}
+      {tab === 3 && (
         <div className="card">
           <h3 className="font-extrabold text-secondary mb-4">Ficha de Saúde</h3>
           <div className="space-y-4">
@@ -2016,8 +2037,8 @@ export function GestaoAlunoClient({
         </div>
       )}
 
-      {/* ── TAB 3: Anotações ───────────────────────────────────────────────── */}
-      {tab === 3 && (
+      {/* ── TAB 4: Anotações ───────────────────────────────────────────────── */}
+      {tab === 4 && (
         <div className="space-y-4">
           <div className="card">
             <h3 className="font-extrabold text-secondary mb-4">Nova Anotação</h3>
@@ -2055,8 +2076,8 @@ export function GestaoAlunoClient({
         </div>
       )}
 
-      {/* ── TAB 4: Feedbacks ───────────────────────────────────────────────── */}
-      {tab === 4 && (
+      {/* ── TAB 5: Feedbacks ───────────────────────────────────────────────── */}
+      {tab === 5 && (
         <div className="space-y-4">
           {feedbacks_semanais.map((f: any) => (
             <div key={f.id} className="card">
@@ -2082,8 +2103,8 @@ export function GestaoAlunoClient({
         </div>
       )}
 
-      {/* ── TAB 5: Score / Evolução ─────────────────────────────────────────── */}
-      {tab === 5 && (
+      {/* ── TAB 6: Score / Evolução ─────────────────────────────────────────── */}
+      {tab === 6 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="card">
             <h3 className="font-extrabold text-secondary mb-4">Evolução de Carga</h3>

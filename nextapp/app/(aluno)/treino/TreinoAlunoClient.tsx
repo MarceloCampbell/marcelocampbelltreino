@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckCircle2, ChevronDown, ChevronUp, Loader2, X, RefreshCw,
-  Dumbbell, Clock, ChevronRight, Play, Maximize2,
+  Dumbbell, Clock, Play, Maximize2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
@@ -373,15 +373,13 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
                             {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
                           </button>
                         )}
-                        {iniciado && (
-                          <button
-                            onClick={() => startRestTimer(item)}
-                            className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-                          >
-                            <Clock size={11} />
-                            {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => startRestTimer(item)}
+                          className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
+                        >
+                          <Clock size={11} />
+                          {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
+                        </button>
                       </div>
                     </div>
 
@@ -486,7 +484,6 @@ export function TreinoAlunoClient({
   const [obs, setObs] = useState('')
   const [savingFb, setSavingFb] = useState(false)
   const [substitutoAberto, setSubstitutoAberto] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'treino' | 'aerobico'>('treino')
 
   const semanaInfo = cicloAtivo ? calcSemanaAtual(cicloAtivo.data_inicio, cicloAtivo.data_fim) : null
   const faseInfo = semanaInfo ? MC_FASES[semanaInfo.semana - 1] ?? null : null
@@ -572,71 +569,38 @@ export function TreinoAlunoClient({
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Navegação para as seções */}
       <div className="flex gap-1 bg-white rounded-xl shadow-card p-1">
-        <button
-          onClick={() => setActiveTab('treino')}
-          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${activeTab === 'treino' ? 'bg-primary-dark text-white' : 'text-secondary hover:bg-gray-100'}`}
+        <Link
+          href="/rotinas"
+          className="flex-1 py-2.5 rounded-lg text-sm font-semibold text-center transition-all text-secondary hover:bg-gray-100"
         >
           Rotinas de treino
-        </button>
-        <button
-          onClick={() => setActiveTab('aerobico')}
-          className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${activeTab === 'aerobico' ? 'bg-primary-dark text-white' : 'text-secondary hover:bg-gray-100'}`}
+        </Link>
+        <Link
+          href="/aerobicos"
+          className="flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 text-secondary hover:bg-gray-100"
         >
           Aeróbico
           {aerobicosHoje.length > 0 && (
-            <span className={`inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full ${activeTab === 'aerobico' ? 'bg-white/30 text-white' : 'bg-blue-100 text-blue-600'}`}>
+            <span className="inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold rounded-full bg-blue-100 text-blue-600">
               {aerobicosHoje.length}
             </span>
           )}
-        </button>
+        </Link>
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'treino' ? (
-        treinoHoje ? (
-          <SessaoCard sessao={treinoHoje} highlight={true} {...cardProps} />
-        ) : (
-          <div className="bg-white rounded-2xl shadow-card p-8 text-center">
-            <p className="text-5xl mb-4">🛌</p>
-            <p className="font-bold text-secondary text-xl">Hoje é dia de descanso!</p>
-            <p className="text-sm text-outline mt-2 leading-relaxed max-w-xs mx-auto">
-              Recuperação também é treino — durma bem, se alimente bem e volte mais forte amanhã.
-            </p>
-          </div>
-        )
+      {/* Treino de hoje */}
+      {treinoHoje ? (
+        <SessaoCard sessao={treinoHoje} highlight={true} {...cardProps} />
       ) : (
-        aerobicosHoje.length > 0 ? (
-          <div className="space-y-3">
-            {aerobicosHoje.map(a => (
-              <Link key={a.id} href="/aerobicos" className="block bg-white rounded-2xl shadow-card p-5 hover:shadow-md transition-shadow">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xl">{a.modalidade === 'Corrida' ? '🏃' : a.modalidade === 'Bike' ? '🚴' : '🏋️'}</span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-secondary">{a.nome}</p>
-                    <div className="flex flex-wrap gap-3 mt-0.5 text-xs text-outline">
-                      {a.duracao_estimada_min && <span className="flex items-center gap-1"><Clock size={10} />{a.duracao_estimada_min} min</span>}
-                      {a.distancia_estimada_km && <span>{a.distancia_estimada_km} km</span>}
-                      {a.intensidade_principal && <span>{a.intensidade_principal}</span>}
-                    </div>
-                  </div>
-                  <ChevronRight size={16} className="text-outline flex-shrink-0" />
-                </div>
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <div className="bg-white rounded-2xl shadow-card p-8 text-center">
-            <p className="text-5xl mb-4">🏃</p>
-            <p className="font-bold text-secondary text-xl">Sem aeróbico hoje</p>
-            <p className="text-sm text-outline mt-2 leading-relaxed">
-              Nenhum treino aeróbico programado para hoje.
-            </p>
-          </div>
-        )
+        <div className="bg-white rounded-2xl shadow-card p-8 text-center">
+          <p className="text-5xl mb-4">🛌</p>
+          <p className="font-bold text-secondary text-xl">Hoje é dia de descanso!</p>
+          <p className="text-sm text-outline mt-2 leading-relaxed max-w-xs mx-auto">
+            Recuperação também é treino — durma bem, se alimente bem e volte mais forte amanhã.
+          </p>
+        </div>
       )}
 
     </div>

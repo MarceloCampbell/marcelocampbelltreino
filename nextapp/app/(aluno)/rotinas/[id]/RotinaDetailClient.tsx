@@ -347,15 +347,13 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                             {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
                           </button>
                         )}
-                        {iniciado && (
-                          <button
-                            onClick={() => startRestTimer(item)}
-                            className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-                          >
-                            <Clock size={11} />
-                            {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
-                          </button>
-                        )}
+                        <button
+                          onClick={() => startRestTimer(item)}
+                          className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
+                        >
+                          <Clock size={11} />
+                          {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
+                        </button>
                       </div>
                     </div>
 
