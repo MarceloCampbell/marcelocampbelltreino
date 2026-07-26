@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Header } from '@/components/layout/Header'
 import { TrendingUp, Star, Award, Target } from 'lucide-react'
+import { EvolucaoLoadChart } from './EvolucaoLoadChart'
 
 export default async function EvolucaoPage() {
   const supabase = await createClient()
@@ -123,6 +124,9 @@ export default async function EvolucaoPage() {
             <p className="text-sm text-outline mt-1">Continue treinando para desbloquear seus primeiros badges!</p>
           </div>
         )}
+
+        {/* Load evolution chart — client component fetches from set_executions */}
+        <EvolucaoLoadChart alunoId={aluno.id} />
       </div>
     </>
   )

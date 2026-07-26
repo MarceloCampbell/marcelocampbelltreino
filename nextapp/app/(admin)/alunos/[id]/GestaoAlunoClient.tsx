@@ -301,6 +301,13 @@ export function GestaoAlunoClient({
   const [alunoStatus, setAlunoStatus] = useState<string>(aluno.status ?? 'ativo')
   const [statusLoading, setStatusLoading] = useState(false)
 
+  // ── Tab 6: carga evolution + monthly report + logs
+  const [cargaData, setCargaData] = useState<{ nome: string; sessoes: { date: string; carga: number }[] }[]>([])
+  const [monthlyData, setMonthlyData] = useState<{ mes: string; count: number }[]>([])
+  const [accessLogs, setAccessLogs] = useState<{ tipo: string; referencia_id: string | null; criado_em: string }[]>([])
+  const [changeLogs, setChangeLogs] = useState<{ descricao: string; criado_em: string }[]>([])
+  const [tab6Loaded, setTab6Loaded] = useState(false)
+
   // ── Edit dados pessoais
   const [editingDados, setEditingDados] = useState(false)
   const [savingDados, setSavingDados] = useState(false)
@@ -342,6 +349,95 @@ export function GestaoAlunoClient({
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editRotinaForm, editingRotina])
+
+  // Tab 6: fetch real carga + monthly + access + change logs on first open
+  useEffect(() => {
+    if (tab !== 6 || tab6Loaded) return
+    setTab6Loaded(true)
+    async function loadTab6() {
+      const { data: sessions } = await supabase
+        .from('workout_sessions')
+        .select('id, concluido_em')
+        .eq('aluno_id', aluno.id)
+        .not('concluido_em', 'is', null)
+        .order('concluido_em', { ascending: true })
+
+      if (sessions?.length) {
+        const sessionIds = sessions.map(s => s.id)
+        const { data: execs } = await supabase
+          .from('set_executions')
+          .select('session_id, sessao_item_id, carga_registrada')
+          .in('session_id', sessionIds)
+          .eq('concluida', true)
+          .not('carga_registrada', 'is', null)
+
+        if (execs?.length) {
+          const itemIds = [...new Set(execs.map(e => e.sessao_item_id))]
+          const { data: itens } = await supabase.from('sessao_itens').select('id, exercicio_id').in('id', itemIds)
+          const exIds = [...new Set((itens ?? []).map(i => i.exercicio_id).filter(Boolean))]
+          const { data: exercicios } = await supabase.from('exercicios').select('id, nome').in('id', exIds)
+
+          const sessionMap: Record<string, string> = {}
+          sessions.forEach(s => { sessionMap[s.id] = s.concluido_em! })
+          const itemExMap: Record<string, string> = {}
+          ;(itens ?? []).forEach(item => {
+            const ex = (exercicios ?? []).find(e => e.id === item.exercicio_id)
+            if (ex) itemExMap[item.id] = ex.nome
+          })
+          const byEx: Record<string, { date: string; carga: number }[]> = {}
+          for (const exec of execs) {
+            const nome = itemExMap[exec.sessao_item_id]
+            const date = sessionMap[exec.session_id]
+            if (!nome || !date) continue
+            if (!byEx[nome]) byEx[nome] = []
+            const existing = byEx[nome].find(d => d.date === date)
+            if (existing) existing.carga = Math.max(existing.carga, exec.carga_registrada as number)
+            else byEx[nome].push({ date, carga: exec.carga_registrada as number })
+          }
+          for (const nome of Object.keys(byEx)) byEx[nome].sort((a, b) => a.date.localeCompare(b.date))
+          setCargaData(Object.entries(byEx)
+            .sort((a, b) => b[1].length - a[1].length)
+            .slice(0, 3)
+            .map(([nome, sessoes]) => ({ nome, sessoes })))
+        }
+
+        // Monthly workout counts
+        const monthly: Record<string, number> = {}
+        sessions.forEach(s => {
+          if (!s.concluido_em) return
+          const mes = s.concluido_em.substring(0, 7)
+          monthly[mes] = (monthly[mes] ?? 0) + 1
+        })
+        setMonthlyData(Object.entries(monthly)
+          .sort((a, b) => a[0].localeCompare(b[0]))
+          .slice(-6)
+          .map(([mes, count]) => ({ mes, count })))
+      }
+
+      // Access logs (last 20)
+      const { data: logs } = await supabase
+        .from('access_logs')
+        .select('tipo, referencia_id, criado_em')
+        .eq('aluno_id', aluno.id)
+        .order('criado_em', { ascending: false })
+        .limit(20)
+      setAccessLogs(logs ?? [])
+
+      // Change logs for this aluno's ciclos
+      const cicloIds = ciclosList.map(c => c.id)
+      if (cicloIds.length > 0) {
+        const { data: clogs } = await supabase
+          .from('rotina_change_logs')
+          .select('descricao, criado_em')
+          .in('ciclo_id', cicloIds)
+          .order('criado_em', { ascending: false })
+          .limit(20)
+        setChangeLogs(clogs ?? [])
+      }
+    }
+    loadTab6()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   async function saveDados() {
     setSavingDados(true)
@@ -429,6 +525,10 @@ export function GestaoAlunoClient({
       setSelectedRotina(updated)
       setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updated : c))
       setNumSemanas(calcNumSemanas(updated))
+      supabase.from('rotina_change_logs').insert({
+        ciclo_id: selectedRotina.id,
+        descricao: `Rotina "${editRotinaForm.nome.trim()}" editada`,
+      }).then(() => {})
     }
     setEditingRotina(false)
     setSavingEditRotina(false)
@@ -2194,36 +2294,99 @@ export function GestaoAlunoClient({
 
       {/* ── TAB 6: Score / Evolução ─────────────────────────────────────────── */}
       {tab === 6 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="card">
-            <h3 className="font-extrabold text-secondary mb-4">Evolução de Carga</h3>
-            <div className="flex items-end justify-center gap-2 h-32">
-              {[40, 50, 55, 60, 65, 70, 75].map((v, i) => (
-                <div key={i} className="flex flex-col items-center gap-1">
-                  <span className="text-[10px] text-outline">{v}kg</span>
-                  <div className={`w-8 rounded-t-sm ${i === 6 ? 'bg-primary-dark' : 'bg-primary opacity-60'}`} style={{ height: `${(v / 75) * 80}px` }} />
-                  <span className="text-[10px] text-outline">S{i + 1}</span>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Carga evolution — real data */}
+            <div className="card">
+              <h3 className="font-extrabold text-secondary mb-4">Evolução de Carga</h3>
+              {cargaData.length === 0 ? (
+                <p className="text-sm text-outline text-center py-6">Nenhum dado de execução registrado ainda.</p>
+              ) : (
+                <div className="space-y-5">
+                  {cargaData.slice(0, 2).map(({ nome, sessoes }) => {
+                    const maxCarga = Math.max(...sessoes.map(s => s.carga), 1)
+                    const recent = sessoes.slice(-7)
+                    return (
+                      <div key={nome}>
+                        <p className="text-[11px] font-bold text-outline uppercase tracking-wide mb-2 truncate">{nome}</p>
+                        <div className="flex items-end gap-1 h-20">
+                          {recent.map((s, i) => (
+                            <div key={i} className="flex flex-col items-center gap-0.5 flex-1 min-w-0">
+                              <span className="text-[9px] text-outline tabular-nums">{s.carga}</span>
+                              <div
+                                className={`w-full rounded-t-sm ${i === recent.length - 1 ? 'bg-primary-dark' : 'bg-primary opacity-60'}`}
+                                style={{ height: `${Math.max((s.carga / maxCarga) * 56, 4)}px` }}
+                              />
+                              <span className="text-[8px] text-outline tabular-nums">
+                                {new Date(s.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-          <div className="card">
-            <h3 className="font-extrabold text-secondary mb-4">Aderência ao Treino</h3>
-            <div className="flex items-center justify-center">
-              <div className="relative w-32 h-32">
-                <svg viewBox="0 0 36 36" className="w-32 h-32 -rotate-90">
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e1e2e9" strokeWidth="3" />
-                  <circle cx="18" cy="18" r="15.9" fill="none" stroke="#1E6FD9" strokeWidth="3" strokeDasharray={`${aderencia} ${100 - aderencia}`} strokeLinecap="round" />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-extrabold text-primary-dark">{aderencia.toFixed(0)}%</span>
-                  <span className="text-[10px] text-outline">este mês</span>
+
+            {/* Aderência donut */}
+            <div className="card">
+              <h3 className="font-extrabold text-secondary mb-4">Aderência ao Treino</h3>
+              <div className="flex items-center justify-center">
+                <div className="relative w-32 h-32">
+                  <svg viewBox="0 0 36 36" className="w-32 h-32 -rotate-90">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e1e2e9" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#1E6FD9" strokeWidth="3" strokeDasharray={`${aderencia} ${100 - aderencia}`} strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-2xl font-extrabold text-primary-dark">{aderencia.toFixed(0)}%</span>
+                    <span className="text-[10px] text-outline">este mês</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Monthly report */}
+          {monthlyData.length > 0 && (
+            <div className="card">
+              <h3 className="font-extrabold text-secondary mb-4">Relatório Mensal de Treinos</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-outline text-xs uppercase tracking-wide border-b border-outline-variant">
+                      <th className="text-left py-2 font-semibold">Mês</th>
+                      <th className="text-right py-2 font-semibold">Treinos</th>
+                      <th className="text-left py-2 pl-4 font-semibold">Progresso</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant/50">
+                    {monthlyData.map(({ mes, count }) => {
+                      const maxCount = Math.max(...monthlyData.map(m => m.count), 1)
+                      const [year, month] = mes.split('-')
+                      const label = new Date(Number(year), Number(month) - 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+                      return (
+                        <tr key={mes}>
+                          <td className="py-2.5 text-secondary font-medium capitalize">{label}</td>
+                          <td className="py-2.5 text-right font-bold text-primary tabular-nums">{count}</td>
+                          <td className="py-2.5 pl-4">
+                            <div className="h-2 bg-gray-100 rounded-full overflow-hidden w-32">
+                              <div className="h-full bg-primary rounded-full" style={{ width: `${(count / maxCount) * 100}%` }} />
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Badges */}
           {aluno.aluno_badges?.length > 0 && (
-            <div className="card md:col-span-2">
+            <div className="card">
               <h3 className="font-extrabold text-secondary mb-4">Conquistas e Badges</h3>
               <div className="flex flex-wrap gap-3">
                 {aluno.aluno_badges.map((ab: any) => (
@@ -2233,6 +2396,46 @@ export function GestaoAlunoClient({
                       <p className="text-xs font-bold text-yellow-800">{ab.badge.nome}</p>
                       <p className="text-[10px] text-yellow-600">{new Date(ab.conquistado_em).toLocaleDateString('pt-BR')}</p>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Access log */}
+          <div className="card">
+            <h3 className="font-extrabold text-secondary mb-4">Log de Acessos</h3>
+            {accessLogs.length === 0 ? (
+              <p className="text-sm text-outline text-center py-4">Nenhum acesso registrado.</p>
+            ) : (
+              <div className="space-y-2">
+                {accessLogs.map((log, i) => (
+                  <div key={i} className="flex items-center gap-3 text-sm py-2 border-b border-outline-variant/40 last:border-0">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${log.tipo === 'treino_iniciado' ? 'bg-green-500' : 'bg-blue-400'}`} />
+                    <span className="text-secondary font-medium flex-1">
+                      {log.tipo === 'treino_iniciado' ? 'Treino iniciado' : 'Rotina visualizada'}
+                    </span>
+                    <span className="text-outline tabular-nums text-xs">
+                      {new Date(log.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Change log */}
+          {changeLogs.length > 0 && (
+            <div className="card">
+              <h3 className="font-extrabold text-secondary mb-4">Log de Alterações em Rotinas</h3>
+              <div className="space-y-2">
+                {changeLogs.map((log, i) => (
+                  <div key={i} className="flex items-start gap-3 text-sm py-2 border-b border-outline-variant/40 last:border-0">
+                    <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0 mt-1.5" />
+                    <span className="text-secondary flex-1">{log.descricao}</span>
+                    <span className="text-outline tabular-nums text-xs flex-shrink-0">
+                      {new Date(log.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </div>
                 ))}
               </div>

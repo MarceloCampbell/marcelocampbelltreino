@@ -120,7 +120,39 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   const [motivo, setMotivo] = useState('')
   const [showSummary, setShowSummary] = useState(false)
 
+  // Fase 5 — last load reference per exercise
+  const [lastLoads, setLastLoads] = useState<Record<string, number>>({})
+
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
+
+  useEffect(() => {
+    if (itens.length === 0) return
+    const itemIds = itens.map(i => i.id)
+    supabase
+      .from('set_executions')
+      .select('sessao_item_id, carga_registrada, criado_em')
+      .in('sessao_item_id', itemIds)
+      .eq('concluida', true)
+      .not('carga_registrada', 'is', null)
+      .order('criado_em', { ascending: false })
+      .then(({ data }) => {
+        if (!data) return
+        const loads: Record<string, number> = {}
+        for (const row of data) {
+          if (!loads[row.sessao_item_id]) loads[row.sessao_item_id] = row.carga_registrada
+        }
+        setLastLoads(loads)
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!alunoId) return
+    supabase.from('access_logs').insert({
+      aluno_id: alunoId,
+      tipo: 'rotina_visualizada',
+      referencia_id: sessao.id,
+    }).then(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!iniciado) return
@@ -430,6 +462,11 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                       <p className="font-bold text-secondary text-base leading-tight">
                         {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
                       </p>
+                      {lastLoads[item.id] && (
+                        <p className="text-xs text-green-600 font-medium mt-0.5">
+                          Última carga: {lastLoads[item.id]}kg
+                        </p>
+                      )}
 
                       <div className="mt-2 space-y-1">
                         {(series || repeticoes) && (
