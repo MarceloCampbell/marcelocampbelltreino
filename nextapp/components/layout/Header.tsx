@@ -3,15 +3,18 @@
 import { useState } from 'react'
 import { Bell, Settings, Search, X } from 'lucide-react'
 import Link from 'next/link'
+import { GlobalSearch } from '@/components/admin/GlobalSearch'
 
 interface HeaderProps {
   title: string
   actions?: React.ReactNode
   showSearch?: boolean
+  showGlobalSearch?: boolean
 }
 
-export function Header({ title, actions, showSearch = false }: HeaderProps) {
+export function Header({ title, actions, showSearch = false, showGlobalSearch = false }: HeaderProps) {
   const [showNotif, setShowNotif] = useState(false)
+  const [showGS, setShowGS] = useState(false)
 
   return (
     <>
@@ -33,6 +36,15 @@ export function Header({ title, actions, showSearch = false }: HeaderProps) {
 
         <div className="flex items-center gap-2 flex-shrink-0">
           {actions}
+          {showGlobalSearch && (
+            <button
+              onClick={() => setShowGS(true)}
+              className="p-2 rounded-lg hover:bg-gray-100 text-secondary transition-colors"
+              title="Busca global (alunos, exercícios, academias)"
+            >
+              <Search size={20} />
+            </button>
+          )}
           <button
             onClick={() => setShowNotif(v => !v)}
             className="relative p-2 rounded-lg hover:bg-gray-100 text-secondary transition-colors"
@@ -45,6 +57,8 @@ export function Header({ title, actions, showSearch = false }: HeaderProps) {
           </Link>
         </div>
       </header>
+
+      {showGS && <GlobalSearch onClose={() => setShowGS(false)} />}
 
       {showNotif && (
         <div className="fixed inset-0 z-40" onClick={() => setShowNotif(false)}>

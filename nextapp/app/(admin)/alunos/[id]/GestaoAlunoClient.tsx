@@ -308,6 +308,19 @@ export function GestaoAlunoClient({
   const [changeLogs, setChangeLogs] = useState<{ descricao: string; criado_em: string }[]>([])
   const [tab6Loaded, setTab6Loaded] = useState(false)
 
+  // ── Fase 6 admin tools
+  const [renovandoCiclo, setRenovandoCiclo] = useState(false)
+  const [showValidation, setShowValidation] = useState(false)
+  const [validationIssues, setValidationIssues] = useState<string[]>([])
+  const [showDuplicate, setShowDuplicate] = useState(false)
+  const [duplicateSearch, setDuplicateSearch] = useState('')
+  const [duplicateAlunoId, setDuplicateAlunoId] = useState('')
+  const [duplicateAlunoNome, setDuplicateAlunoNome] = useState('')
+  const [duplicateLoading, setDuplicateLoading] = useState(false)
+  const [todosAlunos, setTodosAlunos] = useState<{ id: string; nome: string }[]>([])
+  const [bulkInterval, setBulkInterval] = useState('')
+  const [applyingBulk, setApplyingBulk] = useState(false)
+
   // ── Edit dados pessoais
   const [editingDados, setEditingDados] = useState(false)
   const [savingDados, setSavingDados] = useState(false)
@@ -933,6 +946,217 @@ export function GestaoAlunoClient({
     setStatusLoading(false)
   }
 
+  async function arquivarAluno() {
+    if (!confirm(`Arquivar ${nome}? O aluno ficará oculto da lista principal, mas todos os dados serão mantidos. Pode ser reativado a qualquer momento.`)) return
+    setStatusLoading(true)
+    await supabase.from('alunos').update({ status: 'arquivado' }).eq('id', aluno.id)
+    setAlunoStatus('arquivado')
+    setStatusLoading(false)
+  }
+
+  function validateRotinaBeforePublish(rotina: Rotina): string[] {
+    const issues: string[] = []
+    for (const sessao of rotina.sessoes_treino) {
+      if (sessao.tipo === 'aerobico') continue
+      for (const item of sessao.sessao_itens) {
+        const nome = item.exercicio?.nome ?? 'Exercício'
+        if (!item.series) issues.push(`${sessao.nome}: "${nome}" sem séries`)
+        if (!item.repeticoes) issues.push(`${sessao.nome}: "${nome}" sem repetições`)
+      }
+    }
+    return issues
+  }
+
+  async function renovarCiclo() {
+    if (!selectedRotina || renovandoCiclo) return
+    setRenovandoCiclo(true)
+    try {
+      const { data: novo } = await supabase.from('ciclos').insert({
+        aluno_id: aluno.id,
+        nome: `${selectedRotina.nome} (Renovado)`,
+        status: 'rascunho',
+        tipo: selectedRotina.tipo,
+        objetivo: selectedRotina.objetivo,
+        orientacoes: selectedRotina.orientacoes,
+        visivel_antes_de_iniciar: selectedRotina.visivel_antes_de_iniciar,
+        ocultar_ao_vencer: selectedRotina.ocultar_ao_vencer,
+      }).select('id').single()
+      if (!novo) return
+
+      for (const sessao of selectedRotina.sessoes_treino) {
+        const { data: novaSessao } = await supabase.from('sessoes_treino').insert({
+          ciclo_id: novo.id,
+          nome: sessao.nome,
+          tipo: sessao.tipo,
+          dia_letra: sessao.dia_letra,
+          dia_semana_numero: sessao.dia_semana_numero,
+          orientacoes_aluno: sessao.orientacoes_aluno,
+          observacoes: sessao.observacoes,
+          tipo_aerobico: sessao.tipo_aerobico,
+          status: 'pendente',
+          ordem: sessao.ordem,
+        }).select('id').single()
+        if (!novaSessao || !sessao.sessao_itens.length) continue
+        await supabase.from('sessao_itens').insert(
+          sessao.sessao_itens.map(item => ({
+            sessao_id: novaSessao.id,
+            exercicio_id: item.exercicio?.id ?? null,
+            ordem: item.ordem,
+            series: item.series,
+            repeticoes: item.repeticoes,
+            carga_kg: item.carga_kg,
+            descanso_seg: item.descanso_seg,
+            observacoes: item.observacoes,
+            periodizacao_semanal: item.periodizacao_semanal,
+            biset_grupo: item.biset_grupo,
+          }))
+        )
+      }
+
+      const { data: updated } = await supabase
+        .from('ciclos')
+        .select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+        .eq('id', novo.id).single()
+      if (updated) {
+        setCiclosList(prev => [updated as unknown as Rotina, ...prev])
+        setSelectedRotina(updated as unknown as Rotina)
+      }
+    } finally {
+      setRenovandoCiclo(false)
+    }
+  }
+
+  async function carregarTodosAlunos() {
+    if (todosAlunos.length > 0) return
+    const { data } = await supabase.from('alunos').select('id, usuario:usuarios(nome)').neq('id', aluno.id).eq('status', 'ativo').order('criado_em', { ascending: false })
+    setTodosAlunos((data ?? []).map(a => ({ id: a.id, nome: (a.usuario as any)?.nome ?? 'Aluno' })))
+  }
+
+  async function duplicarParaAluno() {
+    if (!selectedRotina || !duplicateAlunoId || duplicateLoading) return
+    setDuplicateLoading(true)
+    try {
+      const { data: novo } = await supabase.from('ciclos').insert({
+        aluno_id: duplicateAlunoId,
+        nome: selectedRotina.nome,
+        status: 'rascunho',
+        tipo: selectedRotina.tipo,
+        objetivo: selectedRotina.objetivo,
+        orientacoes: selectedRotina.orientacoes,
+        visivel_antes_de_iniciar: selectedRotina.visivel_antes_de_iniciar,
+        ocultar_ao_vencer: selectedRotina.ocultar_ao_vencer,
+      }).select('id').single()
+      if (!novo) return
+
+      for (const sessao of selectedRotina.sessoes_treino) {
+        const { data: novaSessao } = await supabase.from('sessoes_treino').insert({
+          ciclo_id: novo.id,
+          nome: sessao.nome,
+          tipo: sessao.tipo,
+          dia_letra: sessao.dia_letra,
+          dia_semana_numero: sessao.dia_semana_numero,
+          orientacoes_aluno: sessao.orientacoes_aluno,
+          observacoes: sessao.observacoes,
+          tipo_aerobico: sessao.tipo_aerobico,
+          status: 'pendente',
+          ordem: sessao.ordem,
+        }).select('id').single()
+        if (!novaSessao || !sessao.sessao_itens.length) continue
+        await supabase.from('sessao_itens').insert(
+          sessao.sessao_itens.map(item => ({
+            sessao_id: novaSessao.id,
+            exercicio_id: item.exercicio?.id ?? null,
+            ordem: item.ordem,
+            series: item.series,
+            repeticoes: item.repeticoes,
+            carga_kg: item.carga_kg,
+            descanso_seg: item.descanso_seg,
+            observacoes: item.observacoes,
+            periodizacao_semanal: item.periodizacao_semanal,
+            biset_grupo: item.biset_grupo,
+          }))
+        )
+      }
+      setShowDuplicate(false)
+      setDuplicateAlunoId('')
+      setDuplicateAlunoNome('')
+      alert(`Rotina duplicada para ${duplicateAlunoNome} com sucesso! Acesse o perfil do aluno para ajustar.`)
+    } finally {
+      setDuplicateLoading(false)
+    }
+  }
+
+  async function applyBulkInterval() {
+    if (!bulkInterval || selectedItemIds.size === 0 || applyingBulk) return
+    const secs = parseInt(bulkInterval)
+    if (isNaN(secs)) return
+    setApplyingBulk(true)
+    await Promise.all([...selectedItemIds].map(id =>
+      supabase.from('sessao_itens').update({ descanso_seg: secs }).eq('id', id)
+    ))
+    const { data: updated } = await supabase
+      .from('ciclos')
+      .select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina!.id).single()
+    if (updated) {
+      setSelectedRotina(updated as unknown as Rotina)
+      setCiclosList(prev => prev.map(c => c.id === selectedRotina!.id ? updated as unknown as Rotina : c))
+    }
+    setSelectedItemIds(new Set())
+    setBulkInterval('')
+    setApplyingBulk(false)
+  }
+
+  function printRotina() {
+    if (!selectedRotina) return
+    const win = window.open('', '_blank')
+    if (!win) return
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<title>${selectedRotina.nome} — MC Treino</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 24px; color: #424242; }
+  h1 { font-size: 24px; color: #1E6FD9; margin-bottom: 4px; }
+  h2 { font-size: 16px; color: #424242; margin: 20px 0 8px; border-bottom: 2px solid #64A1EE; padding-bottom: 4px; }
+  .tag { display: inline-block; background: #64A1EE22; color: #1E6FD9; padding: 2px 8px; border-radius: 99px; font-size: 12px; font-weight: bold; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { background: #64A1EE; color: white; padding: 8px; text-align: left; }
+  td { padding: 7px 8px; border-bottom: 1px solid #e0e0e0; }
+  tr:nth-child(even) td { background: #f5f8ff; }
+  .footer { margin-top: 32px; font-size: 11px; color: #9e9e9e; text-align: center; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+<h1>${selectedRotina.nome}</h1>
+${selectedRotina.objetivo ? `<p>${selectedRotina.objetivo}</p>` : ''}
+<span class="tag">${nome}</span>
+${selectedRotina.sessoes_treino.filter(s => s.tipo !== 'aerobico').map(s => `
+<h2>Treino ${s.dia_letra ?? ''}: ${s.nome}</h2>
+<table>
+<thead><tr><th>#</th><th>Exercício</th><th>Séries</th><th>Reps</th><th>Carga</th><th>Descanso</th></tr></thead>
+<tbody>
+${s.sessao_itens.map((item, i) => `
+<tr>
+  <td>${i + 1}</td>
+  <td>${item.exercicio?.nome ?? '–'}</td>
+  <td>${item.series ?? '–'}</td>
+  <td>${item.repeticoes ?? '–'}</td>
+  <td>${item.carga_kg ? item.carga_kg + 'kg' : '–'}</td>
+  <td>${item.descanso_seg ? item.descanso_seg + 's' : '–'}</td>
+</tr>`).join('')}
+</tbody>
+</table>`).join('')}
+<div class="footer">Gerado por MC Treino · ${new Date().toLocaleDateString('pt-BR')}</div>
+</body>
+</html>`
+    win.document.write(html)
+    win.document.close()
+    win.print()
+  }
+
   async function excluirAluno() {
     if (!confirm(`EXCLUIR ${nome} PERMANENTEMENTE?\n\nEsta ação é IRREVERSÍVEL e remove todos os dados do aluno.`)) return
     const res = await fetch(`/api/alunos/${aluno.id}`, { method: 'DELETE' })
@@ -1189,9 +1413,47 @@ export function GestaoAlunoClient({
           ) : (
             // ── Rotina detail view
             <div>
-              <button onClick={() => setSelectedRotina(null)} className="flex items-center gap-1 text-sm text-outline hover:text-secondary mb-4 transition-colors">
-                <ChevronLeft size={16} /> Voltar às rotinas
-              </button>
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <button onClick={() => setSelectedRotina(null)} className="flex items-center gap-1 text-sm text-outline hover:text-secondary transition-colors">
+                  <ChevronLeft size={16} /> Voltar às rotinas
+                </button>
+                <div className="ml-auto flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => {
+                      const issues = validateRotinaBeforePublish(selectedRotina!)
+                      setValidationIssues(issues)
+                      if (issues.length > 0) setShowValidation(true)
+                      else alert('Rotina sem inconsistências.')
+                    }}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-outline-variant text-secondary hover:bg-gray-50 transition-colors"
+                    title="Verificar exercícios incompletos"
+                  >
+                    Verificar
+                  </button>
+                  <button
+                    onClick={renovarCiclo}
+                    disabled={renovandoCiclo}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors"
+                    title="Duplicar esta rotina como rascunho para renovação"
+                  >
+                    {renovandoCiclo ? 'Copiando...' : 'Renovar ciclo'}
+                  </button>
+                  <button
+                    onClick={() => { setShowDuplicate(true); carregarTodosAlunos() }}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-outline-variant text-secondary hover:bg-gray-50 transition-colors"
+                    title="Copiar rotina para outro aluno"
+                  >
+                    Duplicar para...
+                  </button>
+                  <button
+                    onClick={printRotina}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-secondary text-white hover:bg-secondary/90 transition-colors"
+                    title="Exportar como PDF"
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
+              </div>
 
               {/* Rotina info card */}
               <div className="card mb-4">
@@ -1488,20 +1750,41 @@ export function GestaoAlunoClient({
                         const sessaoSelectedCount = s.sessao_itens.filter(i => selectedItemIds.has(i.id)).length
                         return (
                         <div className="mt-3 pt-3 border-t border-outline-variant space-y-2">
-                          {sessaoSelectedCount >= 2 && (
-                            <div className="flex gap-2 pb-1">
-                              <button
-                                onClick={combinarItems}
-                                className="flex-1 text-xs font-semibold text-white bg-primary rounded-lg px-3 py-1.5 hover:bg-primary-dark transition-colors"
-                              >
-                                Combinar bi-set
-                              </button>
-                              <button
-                                onClick={() => setSelectedItemIds(new Set())}
-                                className="text-xs text-outline hover:text-secondary px-2"
-                              >
-                                Cancelar
-                              </button>
+                          {sessaoSelectedCount >= 1 && (
+                            <div className="space-y-2 pb-1">
+                              <div className="flex gap-2">
+                                {sessaoSelectedCount >= 2 && (
+                                  <button
+                                    onClick={combinarItems}
+                                    className="flex-1 text-xs font-semibold text-white bg-primary rounded-lg px-3 py-1.5 hover:bg-primary-dark transition-colors"
+                                  >
+                                    Bi-set ({sessaoSelectedCount})
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => setSelectedItemIds(new Set())}
+                                  className="text-xs text-outline hover:text-secondary px-2"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                              <div className="flex gap-2 items-center">
+                                <input
+                                  type="number"
+                                  className="input text-xs py-1 w-24"
+                                  placeholder="Intervalo (s)"
+                                  value={bulkInterval}
+                                  onChange={e => setBulkInterval(e.target.value)}
+                                  min={0}
+                                />
+                                <button
+                                  onClick={applyBulkInterval}
+                                  disabled={!bulkInterval || applyingBulk}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-secondary text-white hover:bg-secondary/90 disabled:opacity-40 transition-colors"
+                                >
+                                  {applyingBulk ? '...' : `Aplicar intervalo (${sessaoSelectedCount})`}
+                                </button>
+                              </div>
                             </div>
                           )}
                           {s.sessao_itens.map((item, iIdx) => {
@@ -2154,6 +2437,15 @@ export function GestaoAlunoClient({
                     <UserCheck size={14} /> {statusLoading ? '...' : 'Ativar aluno'}
                   </button>
                 )}
+                {alunoStatus !== 'arquivado' && (
+                  <button
+                    onClick={arquivarAluno}
+                    disabled={statusLoading}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-gray-50 text-gray-600 text-xs font-semibold hover:bg-gray-100 transition-colors"
+                  >
+                    <Archive size={14} /> Arquivar aluno
+                  </button>
+                )}
                 <button
                   onClick={excluirAluno}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors"
@@ -2441,6 +2733,70 @@ export function GestaoAlunoClient({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Validation modal */}
+      {showValidation && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-secondary">Exercícios Incompletos</h3>
+              <button onClick={() => setShowValidation(false)} className="text-outline hover:text-secondary"><X size={20} /></button>
+            </div>
+            <p className="text-sm text-outline mb-4">Os itens abaixo estão sem séries ou repetições:</p>
+            <ul className="space-y-2 mb-5 max-h-64 overflow-y-auto">
+              {validationIssues.map((issue, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-secondary">
+                  <AlertCircle size={14} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                  {issue}
+                </li>
+              ))}
+            </ul>
+            <button onClick={() => setShowValidation(false)} className="btn-primary w-full justify-center">Entendido</button>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate to another student modal */}
+      {showDuplicate && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-extrabold text-secondary">Duplicar Rotina para Aluno</h3>
+              <button onClick={() => setShowDuplicate(false)} className="text-outline hover:text-secondary"><X size={20} /></button>
+            </div>
+            <p className="text-sm text-outline mb-3">
+              Rotina: <span className="font-semibold text-secondary">{selectedRotina?.nome}</span>
+            </p>
+            <input
+              className="input mb-3"
+              placeholder="Buscar aluno por nome..."
+              value={duplicateSearch}
+              onChange={e => setDuplicateSearch(e.target.value)}
+            />
+            <div className="max-h-48 overflow-y-auto space-y-1 mb-5">
+              {todosAlunos
+                .filter(a => !duplicateSearch || a.nome.toLowerCase().includes(duplicateSearch.toLowerCase()))
+                .map(a => (
+                  <button
+                    key={a.id}
+                    onClick={() => { setDuplicateAlunoId(a.id); setDuplicateAlunoNome(a.nome) }}
+                    className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${duplicateAlunoId === a.id ? 'bg-primary text-white' : 'hover:bg-gray-100 text-secondary'}`}
+                  >
+                    {a.nome}
+                  </button>
+                ))}
+              {todosAlunos.length === 0 && <p className="text-sm text-outline text-center py-4">Carregando...</p>}
+            </div>
+            <button
+              onClick={duplicarParaAluno}
+              disabled={!duplicateAlunoId || duplicateLoading}
+              className="btn-primary w-full justify-center disabled:opacity-50"
+            >
+              {duplicateLoading ? 'Copiando...' : `Duplicar para ${duplicateAlunoNome || '...'}`}
+            </button>
+          </div>
         </div>
       )}
 
