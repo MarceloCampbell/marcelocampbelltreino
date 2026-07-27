@@ -81,7 +81,7 @@ export function GlobalSearch({ onClose }: { onClose: () => void }) {
         )}
 
         {!loading && q.length >= 2 && results.length === 0 && (
-          <div className="px-4 py-6 text-center text-sm text-outline">Nenhum resultado para "{q}"</div>
+          <div className="px-4 py-6 text-center text-sm text-outline">Nenhum resultado para &ldquo;{q}&rdquo;</div>
         )}
 
         {results.length > 0 && (
