@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   TrendingUp, Calendar, Scale, AlertCircle, PenLine, Plus, KeyRound, X,
   ChevronLeft, ChevronDown, ChevronRight, ChevronUp, Trash2, Archive, RotateCcw,
-  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock,
+  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock, Download,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -2446,6 +2446,24 @@ ${s.sessao_itens.map((item, i) => `
                     <Archive size={14} /> Arquivar aluno
                   </button>
                 )}
+                <div className="flex gap-2">
+                  <a
+                    href={`/api/admin/export?aluno_id=${aluno.id}&format=json`}
+                    download
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors"
+                    title="Exportar todos os dados como JSON"
+                  >
+                    <Download size={13} /> JSON
+                  </a>
+                  <a
+                    href={`/api/admin/export?aluno_id=${aluno.id}&format=csv`}
+                    download
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors"
+                    title="Exportar execuções como CSV"
+                  >
+                    <Download size={13} /> CSV
+                  </a>
+                </div>
                 <button
                   onClick={excluirAluno}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 transition-colors"

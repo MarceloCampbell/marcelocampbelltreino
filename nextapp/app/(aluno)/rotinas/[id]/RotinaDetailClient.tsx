@@ -172,7 +172,20 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
 
   function startRestTimer(item: SessaoItem) {
     const idx = itens.findIndex(i => i.id === item.id)
-    if (idx !== -1) setProgressIdx(p => Math.max(p, idx + 1))
+    if (idx !== -1) {
+      setProgressIdx(p => Math.max(p, idx + 1))
+      // Prefetch next exercise thumbnail during rest
+      const nextItem = itens[idx + 1]
+      const nextVid = nextItem?.exercicio?.video_url
+        ? nextItem.exercicio.video_url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([^&?\s/]+)/)?.[1]
+        : null
+      if (nextVid) {
+        const link = document.createElement('link')
+        link.rel = 'prefetch'
+        link.href = `https://img.youtube.com/vi/${nextVid}/mqdefault.jpg`
+        document.head.appendChild(link)
+      }
+    }
     setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })
     setRestTimerFullscreen(true)
     setRestTimerPaused(false)

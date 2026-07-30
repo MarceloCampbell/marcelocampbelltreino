@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, Pencil, Check, X } from 'lucide-react'
+import { Loader2, Pencil, Check, X, Bell } from 'lucide-react'
+import { PushNotifToggle } from '@/components/aluno/PushNotifToggle'
 
 interface Props {
   usuario: {
@@ -65,8 +66,18 @@ export function ConfiguracoesClient({ usuario }: Props) {
   }
 
   const isAdmin = usuario.papel === 'admin' || usuario.papel === 'assistente'
+  const [alunoId, setAlunoId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isAdmin) return
+    const supabase = createClient()
+    supabase.from('alunos').select('id').eq('usuario_id', usuario.id).single().then(({ data }) => {
+      if (data) setAlunoId(data.id)
+    })
+  }, [isAdmin, usuario.id])
 
   return (
+    <div className="space-y-6">
     <div className="card">
       <div className="flex items-center justify-between mb-6">
         <h2 className="font-extrabold text-secondary">Meu Perfil</h2>
@@ -163,6 +174,18 @@ export function ConfiguracoesClient({ usuario }: Props) {
           {saving ? 'Salvando...' : 'Salvar alterações'}
         </button>
       )}
+    </div>
+
+    {!isAdmin && alunoId && (
+      <div className="card">
+        <div className="flex items-center gap-2 mb-4">
+          <Bell size={16} className="text-primary" />
+          <h2 className="font-extrabold text-secondary">Notificações</h2>
+        </div>
+        <p className="text-sm text-outline mb-4">Receba lembretes de treino diretamente no seu celular, mesmo com o app fechado.</p>
+        <PushNotifToggle alunoId={alunoId} />
+      </div>
+    )}
     </div>
   )
 }
