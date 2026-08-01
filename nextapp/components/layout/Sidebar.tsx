@@ -18,7 +18,7 @@ interface SidebarProps {
 }
 
 const adminLinks = [
-  { href: '/pendencias', icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/painel', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/alunos', icon: Users, label: 'Alunos' },
   { href: '/biblioteca', icon: Dumbbell, label: 'Biblioteca' },
   { href: '/academias', icon: Building2, label: 'Academias' },

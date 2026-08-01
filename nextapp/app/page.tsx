@@ -16,5 +16,5 @@ export default async function Home() {
   if (!usuario) redirect('/auth/login')
 
   if (usuario.papel === 'aluno') redirect('/treino')
-  redirect('/pendencias')
+  redirect('/painel')
 }
