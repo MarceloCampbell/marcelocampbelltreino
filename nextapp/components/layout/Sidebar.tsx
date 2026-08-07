@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users, Dumbbell, Building2, Megaphone,
-  Gift, Settings, LogOut, ChevronRight, Menu, X, CalendarDays
+  Gift, Settings, LogOut, ChevronRight, Menu, X, CalendarDays, MessageSquare,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { createClient } from '@/lib/supabase/client'
@@ -20,6 +20,7 @@ interface SidebarProps {
 const adminLinks = [
   { href: '/painel', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/alunos', icon: Users, label: 'Alunos' },
+  { href: '/feedbacks', icon: MessageSquare, label: 'Feedbacks' },
   { href: '/biblioteca', icon: Dumbbell, label: 'Biblioteca' },
   { href: '/academias', icon: Building2, label: 'Academias' },
   { href: '/comunicados', icon: Megaphone, label: 'Comunicados' },

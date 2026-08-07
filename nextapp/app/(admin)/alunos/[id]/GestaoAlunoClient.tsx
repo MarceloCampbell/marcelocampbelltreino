@@ -236,6 +236,14 @@ export function GestaoAlunoClient({
   const [editRotinaForm, setEditRotinaForm] = useState({ nome: '', objetivo: '', orientacoes: '', data_inicio: '', data_fim: '', visivel_antes_de_iniciar: true, ocultar_ao_vencer: false })
   const [savingEditRotina, setSavingEditRotina] = useState(false)
 
+  // ── Sessao accordion (collapsed by default — Item 7)
+  const [expandedSessaoIds, setExpandedSessaoIds] = useState<Set<string>>(new Set())
+
+  // ── Edit sessao inline (Item 6)
+  const [editingSessaoId, setEditingSessaoId] = useState<string | null>(null)
+  const [editSessaoForm, setEditSessaoForm] = useState({ nome: '', dia_semana_numero: '', observacoes: '' })
+  const [savingSessao, setSavingSessao] = useState(false)
+
   // ── Bi-set selection
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
 
@@ -741,6 +749,26 @@ export function GestaoAlunoClient({
       setSelectedRotina(updatedRotina)
       setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
     }
+  }
+
+  async function saveSessao(sessaoId: string) {
+    if (!selectedRotina) return
+    setSavingSessao(true)
+    await supabase.from('sessoes_treino').update({
+      nome: editSessaoForm.nome.trim() || undefined,
+      dia_semana_numero: editSessaoForm.dia_semana_numero !== '' ? parseInt(editSessaoForm.dia_semana_numero) : null,
+      observacoes: editSessaoForm.observacoes || null,
+    }).eq('id', sessaoId)
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina.id).single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === updatedRotina.id ? updatedRotina : c))
+    }
+    setEditingSessaoId(null)
+    setSavingSessao(false)
   }
 
   async function arquivarRotina(id: string) {
@@ -1640,9 +1668,23 @@ ${s.sessao_itens.map((item, i) => `
                   )}
                   {[...selectedRotina.sessoes_treino]
                     .sort((a, b) => (a.ordem ?? 99) - (b.ordem ?? 99))
-                    .map((s, idx, arr) => (
+                    .map((s, idx, arr) => {
+                    const isExpanded = expandedSessaoIds.has(s.id)
+                    const isEditingSessao = editingSessaoId === s.id
+                    return (
                     <div key={s.id} className="card">
-                      <div className="flex items-center gap-3">
+                      {/* Sessao header — clickable to expand (Item 7) */}
+                      <div
+                        className="flex items-center gap-3 cursor-pointer select-none"
+                        onClick={() => {
+                          if (isEditingSessao) return
+                          setExpandedSessaoIds(prev => {
+                            const s2 = new Set(prev)
+                            s2.has(s.id) ? s2.delete(s.id) : s2.add(s.id)
+                            return s2
+                          })
+                        }}
+                      >
                         {s.dia_letra && (
                           <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
                             {s.dia_letra}
@@ -1667,13 +1709,33 @@ ${s.sessao_itens.map((item, i) => `
                             {s.orientacoes_aluno && ` · ${s.orientacoes_aluno.slice(0, 40)}...`}
                           </p>
                         </div>
+                        {/* Edit sessao button (Item 6) */}
+                        <button
+                          onClick={e => {
+                            e.stopPropagation()
+                            if (isEditingSessao) { setEditingSessaoId(null); return }
+                            setEditSessaoForm({
+                              nome: s.nome,
+                              dia_semana_numero: s.dia_semana_numero !== null ? String(s.dia_semana_numero) : '',
+                              observacoes: s.observacoes ?? '',
+                            })
+                            setEditingSessaoId(s.id)
+                            setExpandedSessaoIds(prev => new Set([...prev, s.id]))
+                          }}
+                          className={`p-1.5 rounded transition-colors flex-shrink-0 ${isEditingSessao ? 'text-primary' : 'text-outline hover:text-primary hover:bg-gray-100'}`}
+                          title="Editar treino"
+                        >
+                          <Edit2 size={13} />
+                        </button>
                         {/* Add exercise to existing sessão */}
                         {s.tipo !== 'aerobico' && (
                           <button
-                            onClick={() => {
+                            onClick={e => {
+                              e.stopPropagation()
                               setAddingExToSessaoId(addingExToSessaoId === s.id ? null : s.id)
                               setAddExSearch('')
                               setAddExGrupo('')
+                              if (addingExToSessaoId !== s.id) setExpandedSessaoIds(prev => new Set([...prev, s.id]))
                             }}
                             className={`p-1.5 rounded transition-colors flex-shrink-0 text-xs font-semibold flex items-center gap-1 ${addingExToSessaoId === s.id ? 'bg-primary text-white' : 'text-primary hover:bg-primary/10 border border-primary/40'}`}
                             title="Adicionar exercício"
@@ -1683,7 +1745,7 @@ ${s.sessao_itens.map((item, i) => `
                         )}
                         {/* Delete sessao */}
                         <button
-                          onClick={() => deleteSessao(s.id)}
+                          onClick={e => { e.stopPropagation(); deleteSessao(s.id) }}
                           className="p-1.5 rounded text-outline hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
                           title="Excluir treino"
                         >
@@ -1692,7 +1754,7 @@ ${s.sessao_itens.map((item, i) => `
                         {/* Reorder arrows */}
                         <div className="flex flex-col gap-0.5 flex-shrink-0">
                           <button
-                            onClick={() => moverSessao(s.id, 'up')}
+                            onClick={e => { e.stopPropagation(); moverSessao(s.id, 'up') }}
                             disabled={idx === 0 || reordering}
                             className="p-1 rounded text-outline hover:text-secondary hover:bg-gray-100 disabled:opacity-30 transition-colors"
                             title="Mover para cima"
@@ -1700,7 +1762,7 @@ ${s.sessao_itens.map((item, i) => `
                             <ArrowUp size={13} />
                           </button>
                           <button
-                            onClick={() => moverSessao(s.id, 'down')}
+                            onClick={e => { e.stopPropagation(); moverSessao(s.id, 'down') }}
                             disabled={idx === arr.length - 1 || reordering}
                             className="p-1 rounded text-outline hover:text-secondary hover:bg-gray-100 disabled:opacity-30 transition-colors"
                             title="Mover para baixo"
@@ -1708,9 +1770,41 @@ ${s.sessao_itens.map((item, i) => `
                             <ArrowDown size={13} />
                           </button>
                         </div>
+                        {/* Expand/collapse indicator */}
+                        <div className="flex-shrink-0 text-outline">
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </div>
                       </div>
 
-                      {addingExToSessaoId === s.id && (
+                      {/* Inline sessao edit form (Item 6) */}
+                      {isEditingSessao && (
+                        <div className="mt-3 pt-3 border-t border-outline-variant" onClick={e => e.stopPropagation()}>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                            <div className="sm:col-span-2">
+                              <label className="text-xs font-semibold text-outline mb-1 block">Nome do treino</label>
+                              <input className="input text-sm py-1.5" value={editSessaoForm.nome} onChange={e => setEditSessaoForm(p => ({ ...p, nome: e.target.value }))} />
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-outline mb-1 block">Dia da semana</label>
+                              <select className="input text-sm py-1.5" value={editSessaoForm.dia_semana_numero} onChange={e => setEditSessaoForm(p => ({ ...p, dia_semana_numero: e.target.value }))}>
+                                {DIAS_SEMANA.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-outline mb-1 block">Observações</label>
+                              <input className="input text-sm py-1.5" placeholder="Instruções para o aluno..." value={editSessaoForm.observacoes} onChange={e => setEditSessaoForm(p => ({ ...p, observacoes: e.target.value }))} />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => saveSessao(s.id)} disabled={savingSessao || !editSessaoForm.nome.trim()} className="btn-primary text-xs px-4 py-1.5">
+                              {savingSessao ? '...' : 'Salvar'}
+                            </button>
+                            <button onClick={() => setEditingSessaoId(null)} className="btn-ghost text-xs">Cancelar</button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isExpanded && addingExToSessaoId === s.id && (
                         <div className="mt-3 pt-3 border-t border-outline-variant">
                           <p className="text-xs font-bold text-secondary mb-2">Adicionar exercício a este treino</p>
                           <div className="flex gap-2 mb-2">
@@ -1746,7 +1840,7 @@ ${s.sessao_itens.map((item, i) => `
                         </div>
                       )}
 
-                      {s.sessao_itens.length > 0 && (() => {
+                      {isExpanded && s.sessao_itens.length > 0 && (() => {
                         const sessaoSelectedCount = s.sessao_itens.filter(i => selectedItemIds.has(i.id)).length
                         return (
                         <div className="mt-3 pt-3 border-t border-outline-variant space-y-2">
@@ -2039,7 +2133,8 @@ ${s.sessao_itens.map((item, i) => `
                         )
                       })()}
                     </div>
-                  ))}
+                  )
+                  })}
                 </div>
               )}
 

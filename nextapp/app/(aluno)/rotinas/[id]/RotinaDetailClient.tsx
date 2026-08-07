@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  CheckCircle2, ChevronDown, ChevronUp, Loader2, X, RefreshCw,
-  Dumbbell, Clock, Play, Maximize2,
+  CheckCircle2, ChevronDown, ChevronUp, Loader2, X,
+  Dumbbell, Clock, Play, Maximize2, RefreshCw,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -51,6 +51,18 @@ type Ciclo = {
   status: string
   numero: number
   tema: string | null
+}
+
+type FeedbackForm = {
+  energia: number
+  progressoCarga: string
+  exercicioDificil: string
+  melhorMomento: string
+  sentiu_dor: boolean
+  descricao_dor: string
+  obstaculos: string
+  pergunta: string
+  pesoAtual: string
 }
 
 function extractYoutubeId(url: string | null): string | null {
@@ -105,22 +117,34 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   const [progressIdx, setProgressIdx] = useState(0)
   const [substitutoAberto, setSubstitutoAberto] = useState<string | null>(null)
   const [completing, setCompleting] = useState(false)
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [pse, setPse] = useState(5)
-  const [dor, setDor] = useState(false)
-  const [obs, setObs] = useState('')
-  const [savingFb, setSavingFb] = useState(false)
   const [isRealizado, setIsRealizado] = useState(sessao.status === 'realizado')
   const [actionError, setActionError] = useState<string | null>(null)
 
-  // Fase 4 — execution tracking
+  // Exercise tracking
   const [workoutSessionId, setWorkoutSessionId] = useState<string | null>(null)
-  const [setsDone, setSetsDone] = useState<Record<string, Set<number>>>({})
-  const [showReasonPicker, setShowReasonPicker] = useState(false)
-  const [motivo, setMotivo] = useState('')
-  const [showSummary, setShowSummary] = useState(false)
+  const [cargaRegistrada, setCargaRegistrada] = useState<Record<string, string>>({})
+  const [exercisesDone, setExercisesDone] = useState<Set<string>>(new Set())
 
-  // Fase 5 — last load reference per exercise
+  // Incomplete exercises dialog
+  const [showIncompleteDialog, setShowIncompleteDialog] = useState(false)
+  const [incompleteReasons, setIncompleteReasons] = useState<Record<string, string>>({})
+
+  // Comprehensive feedback form
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false)
+  const [feedbackForm, setFeedbackForm] = useState<FeedbackForm>({
+    energia: 5,
+    progressoCarga: '',
+    exercicioDificil: '',
+    melhorMomento: '',
+    sentiu_dor: false,
+    descricao_dor: '',
+    obstaculos: '',
+    pergunta: '',
+    pesoAtual: '',
+  })
+  const [savingFeedback, setSavingFeedback] = useState(false)
+
+  // Last load reference per exercise
   const [lastLoads, setLastLoads] = useState<Record<string, number>>({})
 
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
@@ -174,7 +198,6 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
     const idx = itens.findIndex(i => i.id === item.id)
     if (idx !== -1) {
       setProgressIdx(p => Math.max(p, idx + 1))
-      // Prefetch next exercise thumbnail during rest
       const nextItem = itens[idx + 1]
       const nextVid = nextItem?.exercicio?.video_url
         ? nextItem.exercicio.video_url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([^&?\s/]+)/)?.[1]
@@ -197,26 +220,20 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
     setRestTimerPaused(false)
   }
 
-  const totalSets = itens.reduce((sum, item) => sum + (item.series ?? 0), 0)
-  const completedSets = Object.values(setsDone).reduce((sum, s) => sum + s.size, 0)
-
-  function parseReps(r: string | null): number {
-    if (!r) return 0
-    const n = parseInt(r)
-    return isNaN(n) ? 0 : n
-  }
-
   function calcVolume(): number {
     return itens.reduce((total, item) => {
-      const done = setsDone[item.id]?.size ?? 0
-      if (!done) return total
-      return total + (item.carga_kg ?? 0) * parseReps(item.repeticoes) * done
+      if (!exercisesDone.has(item.id)) return total
+      const carga = parseFloat(cargaRegistrada[item.id] || '0') || (item.carga_kg ?? 0)
+      const reps = parseInt(item.repeticoes ?? '0') || 0
+      return total + carga * reps * (item.series ?? 0)
     }, 0)
   }
 
   async function iniciarTreino() {
     setIniciado(true)
     setSessionSecs(0)
+    setExercisesDone(new Set())
+    setCargaRegistrada({})
     try {
       const { data } = await supabase.from('workout_sessions').insert({
         aluno_id: alunoId,
@@ -228,83 +245,101 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
     } catch { /* non-critical */ }
   }
 
-  async function toggleSet(item: SessaoItem, setNum: number) {
-    const isDone = setsDone[item.id]?.has(setNum)
-    setSetsDone(prev => {
-      const s = new Set(prev[item.id] ?? [])
-      isDone ? s.delete(setNum) : s.add(setNum)
-      return { ...prev, [item.id]: s }
+  function toggleExerciseDone(itemId: string) {
+    setExercisesDone(prev => {
+      const s = new Set(prev)
+      s.has(itemId) ? s.delete(itemId) : s.add(itemId)
+      return s
     })
-    if (!workoutSessionId) return
-    if (isDone) {
-      await supabase.from('set_executions')
-        .delete()
-        .eq('session_id', workoutSessionId)
-        .eq('sessao_item_id', item.id)
-        .eq('numero_serie', setNum)
-    } else {
-      await supabase.from('set_executions').insert({
-        session_id: workoutSessionId,
-        sessao_item_id: item.id,
-        numero_serie: setNum,
-        carga_registrada: item.carga_kg ?? null,
-        concluida: true,
-      })
-    }
   }
 
-  async function finalizarTreino(motivoIncompleto?: string) {
+  async function finalizarTreino() {
     setCompleting(true)
     setActionError(null)
+    setIniciado(false) // Item 5: stop timer on finalization
     try {
       const { error: err } = await supabase.from('sessoes_treino').update({ status: 'realizado' }).eq('id', sessao.id)
       if (err) throw err
       setIsRealizado(true)
+
+      const incompleteItems = itens.filter(i => !exercisesDone.has(i.id))
+
       if (workoutSessionId) {
         await supabase.from('workout_sessions').update({
           concluido_em: new Date().toISOString(),
-          status: motivoIncompleto ? 'incompleto' : 'concluido',
-          motivo_incompleto: motivoIncompleto ?? null,
+          status: incompleteItems.length > 0 ? 'incompleto' : 'concluido',
+          motivo_incompleto: incompleteItems.length > 0
+            ? incompleteItems.map(i => `${i.exercicio?.nome ?? '?'}: ${incompleteReasons[i.id] || 'Não informado'}`).join('; ')
+            : null,
         }).eq('id', workoutSessionId)
+
+        // Save set_executions for completed exercises
+        for (const item of itens) {
+          if (!exercisesDone.has(item.id)) continue
+          const carga = parseFloat(cargaRegistrada[item.id] || '0') || null
+          const series = item.series ?? 0
+          if (series > 0) {
+            await supabase.from('set_executions').insert(
+              Array.from({ length: series }, (_, idx) => ({
+                session_id: workoutSessionId,
+                sessao_item_id: item.id,
+                numero_serie: idx + 1,
+                carga_registrada: carga,
+                concluida: true,
+              }))
+            )
+          }
+        }
       }
-      setShowReasonPicker(false)
-      setShowSummary(true)
+
+      setShowIncompleteDialog(false)
+      setShowFeedbackForm(true)
     } catch {
       setActionError('Não conseguimos salvar. Tentar de novo?')
+      setIniciado(true) // resume timer on error
     } finally {
       setCompleting(false)
     }
   }
 
   async function marcarRealizado() {
-    if (completedSets < totalSets && totalSets > 0) {
-      setShowReasonPicker(true)
+    const incompleteItems = itens.filter(i => !exercisesDone.has(i.id))
+    if (incompleteItems.length > 0) {
+      setShowIncompleteDialog(true)
       return
     }
     await finalizarTreino()
   }
 
-  async function enviarFeedback() {
-    setSavingFb(true)
+  async function enviarFeedbackCompleto() {
+    setSavingFeedback(true)
     setActionError(null)
     try {
-      const { error: err } = await supabase.from('feedbacks_treino').insert({
+      const incompleteList = itens
+        .filter(i => !exercisesDone.has(i.id))
+        .map(i => ({ nome: i.exercicio?.nome ?? '?', motivo: incompleteReasons[i.id] || 'Não informado' }))
+
+      await supabase.from('workout_feedbacks').insert({
         aluno_id: alunoId,
         sessao_id: sessao.id,
-        completou: true,
-        pse_final: pse,
-        sentiu_dor: dor,
-        observacoes_livres: obs || null,
+        workout_session_id: workoutSessionId,
+        energia_nivel: feedbackForm.energia,
+        progresso_carga: feedbackForm.progressoCarga || null,
+        exercicio_mais_dificil: feedbackForm.exercicioDificil || null,
+        melhor_momento: feedbackForm.melhorMomento || null,
+        sentiu_dor: feedbackForm.sentiu_dor,
+        descricao_dor: feedbackForm.descricao_dor || null,
+        obstaculos: feedbackForm.obstaculos || null,
+        pergunta_marcelo: feedbackForm.pergunta || null,
+        peso_atual: feedbackForm.pesoAtual ? parseFloat(feedbackForm.pesoAtual) : null,
+        exercicios_incompletos: incompleteList.length > 0 ? incompleteList : null,
       })
-      if (err) throw err
-      setShowSummary(false)
-      setFeedbackOpen(false)
-      setPse(5); setDor(false); setObs('')
-      router.refresh()
+
+      router.push('/treino')
     } catch {
-      setActionError('Não conseguimos enviar o feedback. Tentar de novo?')
+      setActionError('Não foi possível salvar o feedback.')
     } finally {
-      setSavingFb(false)
+      setSavingFeedback(false)
     }
   }
 
@@ -416,17 +451,17 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
             <div className="mx-5 mt-3">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs font-semibold text-outline">
-                  {progressIdx === 0 ? `${itens.length} exercícios` : `Exercício ${progressIdx} de ${itens.length}`}
+                  {exercisesDone.size === 0 ? `${itens.length} exercícios` : `${exercisesDone.size} de ${itens.length} concluídos`}
                 </span>
-                {progressIdx > 0 && (
-                  <span className="text-xs text-primary font-bold">{Math.round((progressIdx / itens.length) * 100)}%</span>
+                {exercisesDone.size > 0 && (
+                  <span className="text-xs text-primary font-bold">{Math.round((exercisesDone.size / itens.length) * 100)}%</span>
                 )}
               </div>
-              {progressIdx > 0 && (
+              {exercisesDone.size > 0 && (
                 <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-primary rounded-full transition-all duration-500"
-                    style={{ width: `${(progressIdx / itens.length) * 100}%` }}
+                    style={{ width: `${(exercisesDone.size / itens.length) * 100}%` }}
                   />
                 </div>
               )}
@@ -454,6 +489,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                 const showSubstituto = substitutoAberto === item.id && ex?.substituto
                 const videoToShow = showSubstituto ? ex!.substituto! : ex
                 const isResting = restTimer?.itemId === item.id
+                const isDone = exercisesDone.has(item.id)
 
                 let semanaData: any = null
                 if (item.periodizacao_semanal?.length > 0) {
@@ -467,7 +503,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                 const intervalo = item.descanso_seg
 
                 return (
-                  <div key={item.id} className="flex gap-3 p-4">
+                  <div key={item.id} className={`flex gap-3 p-4 transition-colors ${isDone ? 'bg-green-50/50' : ''}`}>
                     <div className="flex-1 min-w-0">
                       {showSubstituto && (
                         <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>
@@ -488,9 +524,9 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                             {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
                           </p>
                         )}
-                        {carga && (
+                        {carga && !iniciado && (
                           <p className="text-sm text-secondary">
-                            <span className="font-semibold">Carga:</span> {carga}kg
+                            <span className="font-semibold">Carga sugerida:</span> {carga}kg
                           </p>
                         )}
                         {intervalo && (
@@ -500,6 +536,23 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                         )}
                       </div>
 
+                      {/* Weight input — Item 1 */}
+                      {iniciado && (
+                        <div className="flex items-center gap-2 mt-3">
+                          <span className="text-sm font-semibold text-secondary">Carga:</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.5"
+                            className="w-20 border border-outline-variant rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-primary"
+                            placeholder={carga ? String(carga) : '–'}
+                            value={cargaRegistrada[item.id] ?? ''}
+                            onChange={e => setCargaRegistrada(prev => ({ ...prev, [item.id]: e.target.value }))}
+                          />
+                          <span className="text-sm text-secondary">kg</span>
+                        </div>
+                      )}
+
                       {item.observacoes && (
                         <div className="mt-2.5">
                           <p className="text-sm font-semibold text-secondary">Instruções:</p>
@@ -507,30 +560,29 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                         </div>
                       )}
 
-                      {/* Per-set completion circles */}
+                      {/* Series bubbles — visual only (Item 2) */}
                       {iniciado && (series ?? 0) > 0 && (
                         <div className="flex items-center gap-1.5 mt-3">
-                          {Array.from({ length: series as number }).map((_, i) => {
-                            const setNum = i + 1
-                            const done = setsDone[item.id]?.has(setNum)
-                            return (
-                              <button
-                                key={setNum}
-                                onClick={() => toggleSet(item, setNum)}
-                                className={`w-7 h-7 rounded-full border-2 text-xs font-bold transition-all ${
-                                  done
-                                    ? 'bg-green-500 border-green-500 text-white'
-                                    : 'bg-white border-gray-300 text-gray-400 hover:border-green-400'
-                                }`}
-                              >
-                                {setNum}
-                              </button>
-                            )
-                          })}
-                          <span className="text-xs text-outline ml-1">
-                            {setsDone[item.id]?.size ?? 0}/{series} séries
-                          </span>
+                          {Array.from({ length: series as number }).map((_, i) => (
+                            <div
+                              key={i + 1}
+                              className="w-7 h-7 rounded-full border-2 border-gray-200 bg-gray-50 text-xs font-bold text-gray-400 flex items-center justify-center"
+                            >
+                              {i + 1}
+                            </div>
+                          ))}
                         </div>
+                      )}
+
+                      {/* Per-exercise completion check (Item 2) */}
+                      {iniciado && (
+                        <button
+                          onClick={() => toggleExerciseDone(item.id)}
+                          className={`mt-3 flex items-center gap-1.5 text-sm font-semibold transition-colors ${isDone ? 'text-green-600' : 'text-outline hover:text-green-600'}`}
+                        >
+                          <CheckCircle2 size={18} className={isDone ? 'fill-green-100' : ''} />
+                          {isDone ? 'Exercício concluído' : 'Marcar como feito'}
+                        </button>
                       )}
 
                       <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -595,87 +647,188 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
             </div>
           )}
 
-          {/* Reason picker — incomplete sets */}
-          {showReasonPicker && (
-            <div className="mx-5 mb-4 bg-orange-50 border border-orange-200 rounded-2xl p-5">
-              <p className="font-bold text-secondary mb-1">Séries incompletas ({completedSets}/{totalSets})</p>
-              <p className="text-sm text-outline mb-4">Qual foi o motivo?</p>
-              <div className="grid grid-cols-2 gap-2">
-                {['Máquina ocupada', 'Dor ou desconforto', 'Falta de tempo', 'Outro'].map(m => (
+          {/* Incomplete exercises dialog — Item 3 */}
+          {showIncompleteDialog && (() => {
+            const incompleteItems = itens.filter(i => !exercisesDone.has(i.id))
+            return (
+              <div className="mx-5 mb-4 bg-orange-50 border border-orange-200 rounded-2xl p-5">
+                <p className="font-bold text-secondary mb-1">Exercícios sem conclusão ({incompleteItems.length})</p>
+                <p className="text-sm text-outline mb-4">Selecione o motivo para cada um:</p>
+                <div className="space-y-5 max-h-64 overflow-y-auto pr-1">
+                  {incompleteItems.map(item => (
+                    <div key={item.id}>
+                      <p className="text-sm font-semibold text-secondary mb-2">{item.exercicio?.nome ?? 'Exercício'}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {['Máquina ocupada', 'Dor ou desconforto', 'Falta de tempo', 'Outro'].map(m => (
+                          <button
+                            key={m}
+                            onClick={() => setIncompleteReasons(prev => ({ ...prev, [item.id]: m }))}
+                            className={`text-xs font-semibold py-2 px-2 rounded-xl border transition-all ${incompleteReasons[item.id] === m ? 'bg-primary text-white border-primary' : 'bg-white text-secondary border-outline-variant hover:border-primary'}`}
+                          >
+                            {m}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-3 mt-4">
                   <button
-                    key={m}
-                    onClick={() => setMotivo(m)}
-                    className={`text-sm font-semibold py-2.5 px-3 rounded-xl border transition-all ${motivo === m ? 'bg-primary text-white border-primary' : 'bg-white text-secondary border-outline-variant hover:border-primary'}`}
+                    onClick={finalizarTreino}
+                    disabled={completing}
+                    className="btn-primary flex-1"
                   >
-                    {m}
+                    {completing ? <Loader2 size={14} className="animate-spin" /> : null}
+                    Concluir assim mesmo
                   </button>
-                ))}
+                  <button onClick={() => setShowIncompleteDialog(false)} className="btn-ghost text-sm">Cancelar</button>
+                </div>
               </div>
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={() => finalizarTreino(motivo || 'Não informado')}
-                  disabled={completing}
-                  className="btn-primary flex-1"
-                >
-                  {completing ? <Loader2 size={14} className="animate-spin" /> : null}
-                  Concluir assim mesmo
-                </button>
-                <button onClick={() => setShowReasonPicker(false)} className="btn-ghost text-sm">Cancelar</button>
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
-          {!isRealizado && !showReasonPicker && !showSummary && (
+          {!isRealizado && !showIncompleteDialog && !showFeedbackForm && (
             <div className="px-5 pb-5">
               <button onClick={marcarRealizado} disabled={completing} className="btn-primary w-full">
                 {completing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-                {completing ? 'Salvando...' : 'Marcar como Concluído'}
+                {completing ? 'Salvando...' : 'Finalizar Treino'}
               </button>
             </div>
           )}
 
-          {/* Summary screen */}
-          {showSummary && (
-            <div className="px-5 pb-5 bg-green-50 border-t border-green-100">
+          {/* Comprehensive feedback form — Item 4 */}
+          {showFeedbackForm && (
+            <div className="px-5 pb-5 border-t border-outline-variant">
               <div className="py-4 text-center">
                 <p className="text-3xl mb-1">🏆</p>
                 <p className="font-extrabold text-secondary text-lg">Treino concluído!</p>
-              </div>
-              <div className="grid grid-cols-3 gap-3 mb-5">
-                <div className="bg-white rounded-xl p-3 text-center">
-                  <p className="text-lg font-extrabold text-primary">{fmt(sessionSecs)}</p>
-                  <p className="text-[10px] text-outline uppercase tracking-wide mt-0.5">Duração</p>
-                </div>
-                <div className="bg-white rounded-xl p-3 text-center">
-                  <p className="text-lg font-extrabold text-primary">{completedSets}/{totalSets}</p>
-                  <p className="text-[10px] text-outline uppercase tracking-wide mt-0.5">Séries</p>
-                </div>
-                <div className="bg-white rounded-xl p-3 text-center">
-                  <p className="text-lg font-extrabold text-primary">{calcVolume().toFixed(0)}</p>
-                  <p className="text-[10px] text-outline uppercase tracking-wide mt-0.5">Volume kg</p>
-                </div>
+                <p className="text-sm text-outline mt-1">{fmt(sessionSecs)} · {exercisesDone.size}/{itens.length} exercícios · {calcVolume().toFixed(0)} kg volume</p>
               </div>
 
-              <h4 className="font-bold text-secondary mb-3">Como foi?</h4>
-              <div className="space-y-3">
+              <h4 className="font-bold text-secondary mb-4">Como foi o treino?</h4>
+              <div className="space-y-5">
+
+                {/* Energia */}
                 <div>
-                  <label className="label">PSE (Percepção de Esforço 1–10)</label>
-                  <div className="flex gap-2 mt-1 flex-wrap">
+                  <label className="label">Nível de energia (1–10)</label>
+                  <div className="flex gap-1.5 mt-1 flex-wrap">
                     {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                      <button key={n} onClick={() => setPse(n)} className={`w-9 h-9 rounded-full text-sm font-bold transition-all ${pse === n ? 'bg-primary-dark text-white' : 'bg-white border border-outline-variant text-secondary hover:border-primary'}`}>{n}</button>
+                      <button
+                        key={n}
+                        onClick={() => setFeedbackForm(p => ({ ...p, energia: n }))}
+                        className={`w-9 h-9 rounded-full text-sm font-bold transition-all ${feedbackForm.energia === n ? 'bg-primary text-white' : 'bg-white border border-outline-variant text-secondary hover:border-primary'}`}
+                      >
+                        {n}
+                      </button>
                     ))}
                   </div>
                 </div>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={dor} onChange={e => setDor(e.target.checked)} className="w-4 h-4" />
-                  <span className="text-sm text-secondary">Senti dor ou desconforto</span>
-                </label>
+
+                {/* Progresso de carga */}
                 <div>
-                  <label className="label">Observações</label>
-                  <textarea className="input min-h-[80px]" placeholder="Como se sentiu, o que foi difícil..." value={obs} onChange={e => setObs(e.target.value)} />
+                  <label className="label">Progredi nas cargas esta semana?</label>
+                  <div className="flex gap-2 mt-1">
+                    {[{v:'sim', l:'Sim'}, {v:'nao', l:'Não'}, {v:'em_alguns', l:'Em alguns'}].map(({v, l}) => (
+                      <button
+                        key={v}
+                        onClick={() => setFeedbackForm(p => ({ ...p, progressoCarga: v }))}
+                        className={`flex-1 py-2.5 text-sm font-semibold rounded-xl border transition-all ${feedbackForm.progressoCarga === v ? 'bg-primary text-white border-primary' : 'bg-white text-secondary border-outline-variant hover:border-primary'}`}
+                      >
+                        {l}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <button onClick={enviarFeedback} disabled={savingFb} className="btn-primary w-full">
-                  {savingFb ? 'Enviando...' : 'Enviar Feedback'}
+
+                {/* Exercício mais difícil */}
+                <div>
+                  <label className="label">Exercício mais difícil do treino</label>
+                  <input
+                    className="input mt-1"
+                    placeholder="Nome do exercício..."
+                    value={feedbackForm.exercicioDificil}
+                    onChange={e => setFeedbackForm(p => ({ ...p, exercicioDificil: e.target.value }))}
+                  />
+                </div>
+
+                {/* Melhor momento */}
+                <div>
+                  <label className="label">Melhor momento do treino</label>
+                  <input
+                    className="input mt-1"
+                    placeholder="O que te surpreendeu positivamente?"
+                    value={feedbackForm.melhorMomento}
+                    onChange={e => setFeedbackForm(p => ({ ...p, melhorMomento: e.target.value }))}
+                  />
+                </div>
+
+                {/* Dor */}
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={feedbackForm.sentiu_dor}
+                      onChange={e => setFeedbackForm(p => ({ ...p, sentiu_dor: e.target.checked }))}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm text-secondary font-medium">Senti dor ou desconforto</span>
+                  </label>
+                  {feedbackForm.sentiu_dor && (
+                    <input
+                      className="input mt-2"
+                      placeholder="Onde? Quando no treino?"
+                      value={feedbackForm.descricao_dor}
+                      onChange={e => setFeedbackForm(p => ({ ...p, descricao_dor: e.target.value }))}
+                    />
+                  )}
+                </div>
+
+                {/* Obstáculos */}
+                <div>
+                  <label className="label">Obstáculos encontrados</label>
+                  <input
+                    className="input mt-1"
+                    placeholder="Fila, máquina ocupada, tempo curto..."
+                    value={feedbackForm.obstaculos}
+                    onChange={e => setFeedbackForm(p => ({ ...p, obstaculos: e.target.value }))}
+                  />
+                </div>
+
+                {/* Pergunta para Marcelo */}
+                <div>
+                  <label className="label">Pergunta para o Marcelo</label>
+                  <input
+                    className="input mt-1"
+                    placeholder="Deixe uma dúvida ou sugestão..."
+                    value={feedbackForm.pergunta}
+                    onChange={e => setFeedbackForm(p => ({ ...p, pergunta: e.target.value }))}
+                  />
+                </div>
+
+                {/* Peso atual */}
+                <div>
+                  <label className="label">Seu peso hoje (kg)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="30"
+                    max="300"
+                    className="input mt-1"
+                    placeholder="Ex: 75.5"
+                    value={feedbackForm.pesoAtual}
+                    onChange={e => setFeedbackForm(p => ({ ...p, pesoAtual: e.target.value }))}
+                  />
+                </div>
+
+                {actionError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl px-4 py-3">
+                    {actionError}
+                  </div>
+                )}
+
+                <button onClick={enviarFeedbackCompleto} disabled={savingFeedback} className="btn-primary w-full">
+                  {savingFeedback ? <Loader2 size={16} className="animate-spin" /> : null}
+                  {savingFeedback ? 'Enviando...' : 'Enviar e Concluir'}
                 </button>
               </div>
             </div>
