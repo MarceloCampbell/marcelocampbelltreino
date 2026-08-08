@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users, Dumbbell, Building2, Megaphone,
-  Gift, Settings, LogOut, ChevronRight, Menu, X, CalendarDays, MessageSquare,
+  Gift, Settings, LogOut, ChevronRight, Menu, X, CalendarDays, MessageSquare, Upload,
 } from 'lucide-react'
 import { Logo } from './Logo'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,7 @@ const adminLinks = [
   { href: '/painel', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/alunos', icon: Users, label: 'Alunos' },
   { href: '/feedbacks', icon: MessageSquare, label: 'Feedbacks' },
+  { href: '/importar-rotina', icon: Upload, label: 'Importar Rotina' },
   { href: '/biblioteca', icon: Dumbbell, label: 'Biblioteca' },
   { href: '/academias', icon: Building2, label: 'Academias' },
   { href: '/comunicados', icon: Megaphone, label: 'Comunicados' },
