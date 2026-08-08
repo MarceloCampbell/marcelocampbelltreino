@@ -309,10 +309,12 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
       }
 
       // 2. Build final exercise id map
+      // resolvedMap is keyed by normalize(name) — must normalize before lookup
       const getExercicioId = (inputName: string): string | null => {
-        const entry = resolvedMap.get(inputName)
+        const key = normalize(inputName)
+        const entry = resolvedMap.get(key)
         if (!entry || entry.isIgnored) return null
-        if (entry.isNew) return newExIds.get(inputName) ?? null
+        if (entry.isNew) return newExIds.get(key) ?? null
         return entry.exercicioId
       }
 
@@ -332,6 +334,14 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
         .single()
       if (cicloErr || !ciclo) throw new Error(cicloErr?.message ?? 'Erro ao criar ciclo')
       const cicloId = (ciclo as any).id as string
+
+      // Compute number of weeks for periodizacao_semanal
+      const numSemanas = (() => {
+        if (!dataInicio || !dataFim) return 1
+        const diff = new Date(dataFim).getTime() - new Date(dataInicio).getTime()
+        if (diff <= 0) return 1
+        return Math.max(1, Math.round(diff / (1000 * 60 * 60 * 24 * 7)))
+      })()
 
       let totalItens = 0
 
@@ -367,13 +377,20 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
         const itens = rows
           .map((row, i) => {
             const exercicioId = getExercicioId(row.exercicio)
-            const entry = resolvedMap.get(row.exercicio)
+            const entry = resolvedMap.get(normalize(row.exercicio))
             if (entry?.isIgnored) return null
 
             let obs = row.instrucoes || null
             if (row.carga && !row.cargaKg && row.carga.toLowerCase() !== 'sem carga') {
               obs = obs ? `${obs} — Carga: ${row.carga}` : `Carga: ${row.carga}`
             }
+
+            const periodizacao = Array.from({ length: numSemanas }, (_, idx) => ({
+              semana: idx + 1,
+              series: String(row.series ?? '3'),
+              repeticoes: row.reps || '10-12',
+              carga_kg: String(row.cargaKg ?? ''),
+            }))
 
             return {
               sessao_id: sessaoId,
@@ -386,6 +403,7 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
               descanso_seg: row.intervaloSeg,
               observacoes: obs,
               biset_grupo: bisets[i] ?? null,
+              periodizacao_semanal: periodizacao,
             }
           })
           .filter(Boolean)
