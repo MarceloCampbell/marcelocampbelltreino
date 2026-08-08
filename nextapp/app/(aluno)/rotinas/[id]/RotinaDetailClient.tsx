@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckCircle2, ChevronDown, ChevronUp, Loader2, X,
-  Dumbbell, Clock, Play, Maximize2, RefreshCw,
+  Dumbbell, Clock, Play, Maximize2, RefreshCw, Share2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -100,11 +100,12 @@ function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; siz
   )
 }
 
-function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
+function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
   sessao: Sessao
   highlight: boolean
   alunoId: string
   semanaAtual?: number
+  rotinaName?: string
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -143,6 +144,10 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
     pesoAtual: '',
   })
   const [savingFeedback, setSavingFeedback] = useState(false)
+
+  // Celebration screen
+  const [showCelebration, setShowCelebration] = useState(false)
+  const shareCanvasRef = useRef<HTMLCanvasElement>(null)
 
   // Last load reference per exercise
   const [lastLoads, setLastLoads] = useState<Record<string, number>>({})
@@ -232,6 +237,10 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
   async function iniciarTreino() {
     setIniciado(true)
     setSessionSecs(0)
+    setIsRealizado(false)
+    setShowCelebration(false)
+    setShowFeedbackForm(false)
+    setShowIncompleteDialog(false)
     setExercisesDone(new Set())
     setCargaRegistrada({})
     try {
@@ -335,12 +344,175 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
         exercicios_incompletos: incompleteList.length > 0 ? incompleteList : null,
       })
 
-      router.push('/treino')
+      setShowFeedbackForm(false)
+      setShowCelebration(true)
     } catch {
       setActionError('Não foi possível salvar o feedback.')
     } finally {
       setSavingFeedback(false)
     }
+  }
+
+  function drawShareCard(canvas: HTMLCanvasElement) {
+    const W = 540, H = 960
+    canvas.width = W
+    canvas.height = H
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    // Background
+    ctx.fillStyle = '#0A1628'
+    ctx.fillRect(0, 0, W, H)
+
+    // Top accent bar
+    ctx.fillStyle = '#1E6FD9'
+    ctx.fillRect(0, 0, W, 6)
+
+    // Brand
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif'
+    ctx.fillStyle = '#4A90D9'
+    ctx.textAlign = 'center'
+    ctx.fillText('MC TREINO', W / 2, 60)
+
+    // Check circle
+    ctx.beginPath()
+    ctx.arc(W / 2, 155, 52, 0, Math.PI * 2)
+    ctx.fillStyle = '#14532D'
+    ctx.fill()
+    ctx.strokeStyle = '#22C55E'
+    ctx.lineWidth = 6
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(W / 2 - 20, 155)
+    ctx.lineTo(W / 2 - 4, 172)
+    ctx.lineTo(W / 2 + 22, 138)
+    ctx.stroke()
+
+    // Title
+    ctx.fillStyle = '#FFFFFF'
+    ctx.font = 'bold 36px system-ui, -apple-system, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('Treino Concluído!', W / 2, 248)
+
+    // Date
+    const hoje = new Date()
+    const dateStr = hoje.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    ctx.fillStyle = '#64748B'
+    ctx.font = '19px system-ui, -apple-system, sans-serif'
+    ctx.fillText(dateStr, W / 2, 285)
+
+    // Day of week indicators
+    const dayLetters = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']
+    const jsDay = hoje.getDay()
+    const activeIdx = jsDay === 0 ? 6 : jsDay - 1
+    const dotSpacing = 52
+    const totalW = dayLetters.length * dotSpacing
+    const startX = (W - totalW) / 2 + dotSpacing / 2
+    dayLetters.forEach((d, i) => {
+      const x = startX + i * dotSpacing
+      ctx.beginPath()
+      ctx.arc(x, 348, 20, 0, Math.PI * 2)
+      ctx.fillStyle = i === activeIdx ? '#1E6FD9' : '#1E2D45'
+      ctx.fill()
+      ctx.fillStyle = i === activeIdx ? '#FFFFFF' : '#475569'
+      ctx.font = `${i === activeIdx ? 'bold ' : ''}14px system-ui, -apple-system, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.fillText(d, x, 354)
+    })
+
+    // Divider
+    ctx.strokeStyle = '#1E2D45'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(60, 395)
+    ctx.lineTo(W - 60, 395)
+    ctx.stroke()
+
+    // Rotina name
+    if (rotinaName) {
+      ctx.fillStyle = '#475569'
+      ctx.font = '16px system-ui, -apple-system, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(rotinaName, W / 2, 430)
+    }
+
+    // Treino name
+    const treinoLabel = (sessao.dia_letra ? `${sessao.dia_letra} – ` : '') + sessao.nome
+    ctx.fillStyle = '#FFFFFF'
+    ctx.font = 'bold 26px system-ui, -apple-system, sans-serif'
+    ctx.textAlign = 'center'
+    const treinoText = treinoLabel.length > 28 ? treinoLabel.slice(0, 28) + '…' : treinoLabel
+    ctx.fillText(treinoText, W / 2, rotinaName ? 468 : 445)
+
+    // Muscle groups
+    const grupos = [...new Set(
+      itens.filter(i => exercisesDone.has(i.id)).map(i => i.exercicio?.grupo_muscular).filter(Boolean)
+    )] as string[]
+    if (grupos.length > 0) {
+      const gruposText = grupos.join(' · ').toUpperCase()
+      ctx.fillStyle = '#4A90D9'
+      ctx.font = 'bold 14px system-ui, -apple-system, sans-serif'
+      ctx.textAlign = 'center'
+      const gt = gruposText.length > 45 ? gruposText.slice(0, 45) + '…' : gruposText
+      ctx.fillText(gt, W / 2, rotinaName ? 500 : 477)
+    }
+
+    // Stats bar
+    const statsY = 570
+    ctx.fillStyle = '#0F1E32'
+    ctx.roundRect(40, statsY - 30, W - 80, 80, 16)
+    ctx.fill()
+    const stats = [
+      { label: 'DURAÇÃO', value: fmt(sessionSecs) },
+      { label: 'EXERCÍCIOS', value: `${exercisesDone.size}/${itens.length}` },
+      { label: 'VOLUME', value: `${calcVolume().toFixed(0)}kg` },
+    ]
+    stats.forEach((stat, i) => {
+      const x = 40 + (W - 80) / 6 + i * (W - 80) / 3
+      ctx.fillStyle = '#4A90D9'
+      ctx.font = 'bold 24px system-ui, -apple-system, sans-serif'
+      ctx.textAlign = 'center'
+      ctx.fillText(stat.value, x, statsY + 10)
+      ctx.fillStyle = '#475569'
+      ctx.font = '11px system-ui, -apple-system, sans-serif'
+      ctx.fillText(stat.label, x, statsY + 28)
+    })
+
+    // Footer
+    ctx.fillStyle = '#060E1A'
+    ctx.fillRect(0, H - 70, W, 70)
+    ctx.fillStyle = '#1E6FD9'
+    ctx.font = 'bold 16px system-ui, -apple-system, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('mc-treino.app', W / 2, H - 38)
+    ctx.fillStyle = '#2A3F5A'
+    ctx.font = '12px system-ui, -apple-system, sans-serif'
+    ctx.fillText('Registre. Evolua. Compartilhe.', W / 2, H - 16)
+  }
+
+  async function handleShare() {
+    const canvas = shareCanvasRef.current
+    if (!canvas) return
+    drawShareCard(canvas)
+    canvas.toBlob(async (blob) => {
+      if (!blob) return
+      const file = new File([blob], 'meu-treino.png', { type: 'image/png' })
+      try {
+        if (typeof navigator.share === 'function' && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: 'Treino Concluído!', text: `Concluí o treino "${sessao.nome}" no MC Treino!` })
+        } else if (typeof navigator.share === 'function') {
+          await navigator.share({ title: 'Treino Concluído!', text: `Concluí o treino "${sessao.nome}" no MC Treino!` })
+        } else {
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = url
+          a.download = 'meu-treino.png'
+          a.click()
+          URL.revokeObjectURL(url)
+        }
+      } catch { /* user cancelled */ }
+    }, 'image/png')
   }
 
   return (
@@ -536,20 +708,18 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
                         )}
                       </div>
 
-                      {/* Weight input — Item 1 */}
+                      {/* Weight input — free text */}
                       {iniciado && (
                         <div className="flex items-center gap-2 mt-3">
                           <span className="text-sm font-semibold text-secondary">Carga:</span>
                           <input
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            className="w-20 border border-outline-variant rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-primary"
-                            placeholder={carga ? String(carga) : '–'}
+                            type="text"
+                            inputMode="decimal"
+                            className="w-32 border border-outline-variant rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-primary"
+                            placeholder={carga ? String(carga) : 'ex: 40/45/50'}
                             value={cargaRegistrada[item.id] ?? ''}
                             onChange={e => setCargaRegistrada(prev => ({ ...prev, [item.id]: e.target.value }))}
                           />
-                          <span className="text-sm text-secondary">kg</span>
                         </div>
                       )}
 
@@ -687,7 +857,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
             )
           })()}
 
-          {!isRealizado && !showIncompleteDialog && !showFeedbackForm && (
+          {!isRealizado && !showIncompleteDialog && !showFeedbackForm && !showCelebration && (
             <div className="px-5 pb-5">
               <button onClick={marcarRealizado} disabled={completing} className="btn-primary w-full">
                 {completing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
@@ -695,6 +865,102 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual }: {
               </button>
             </div>
           )}
+
+          {/* Celebration screen */}
+          {showCelebration && (() => {
+            const hoje = new Date()
+            const jsDay = hoje.getDay()
+            const activeIdx = jsDay === 0 ? 6 : jsDay - 1
+            const grupos = [...new Set(
+              itens.filter(i => exercisesDone.has(i.id)).map(i => i.exercicio?.grupo_muscular).filter(Boolean)
+            )] as string[]
+            return (
+              <div className="border-t border-outline-variant">
+                <div className="px-5 pt-6 pb-8 text-center">
+                  {/* Brand */}
+                  <div className="flex items-center justify-center gap-2 mb-5">
+                    <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                      <Dumbbell size={18} className="text-white" />
+                    </div>
+                    <span className="font-extrabold text-secondary text-lg tracking-tight">MC Treino</span>
+                  </div>
+
+                  {/* Check circle */}
+                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle2 size={44} className="text-green-500 fill-green-50" />
+                  </div>
+
+                  <h2 className="text-2xl font-extrabold text-secondary mb-1">Treino Concluído!</h2>
+                  <p className="text-sm text-outline mb-5">
+                    {hoje.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                  </p>
+
+                  {/* Day of week bubbles */}
+                  <div className="flex justify-center gap-1.5 mb-5">
+                    {['S','T','Q','Q','S','S','D'].map((d, i) => (
+                      <div
+                        key={i}
+                        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                          i === activeIdx ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-outline'
+                        }`}
+                      >
+                        {d}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Rotina + treino name */}
+                  {rotinaName && (
+                    <p className="text-xs text-outline mb-0.5">{rotinaName}</p>
+                  )}
+                  <p className="text-lg font-extrabold text-secondary mb-3">
+                    {sessao.dia_letra ? `${sessao.dia_letra} – ` : ''}{sessao.nome}
+                  </p>
+
+                  {/* Muscle groups */}
+                  {grupos.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-1.5 mb-5">
+                      {grupos.map(g => (
+                        <span key={g} className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-full uppercase tracking-wide">
+                          {g}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-3 gap-2 mb-6">
+                    <div className="bg-background rounded-xl p-3 text-center">
+                      <p className="text-base font-extrabold text-primary tabular-nums">{fmt(sessionSecs)}</p>
+                      <p className="text-[10px] text-outline mt-0.5">Duração</p>
+                    </div>
+                    <div className="bg-background rounded-xl p-3 text-center">
+                      <p className="text-base font-extrabold text-primary tabular-nums">{exercisesDone.size}/{itens.length}</p>
+                      <p className="text-[10px] text-outline mt-0.5">Exercícios</p>
+                    </div>
+                    <div className="bg-background rounded-xl p-3 text-center">
+                      <p className="text-base font-extrabold text-primary tabular-nums">{calcVolume().toFixed(0)}kg</p>
+                      <p className="text-[10px] text-outline mt-0.5">Volume</p>
+                    </div>
+                  </div>
+
+                  {/* Hidden canvas for share */}
+                  <canvas ref={shareCanvasRef} className="hidden" />
+
+                  {/* Action buttons */}
+                  <div className="space-y-2">
+                    <button onClick={handleShare} className="btn-primary w-full gap-2">
+                      <Share2 size={16} />
+                      Compartilhar meu treino
+                    </button>
+                    <button onClick={() => router.push('/treino')} className="btn-ghost w-full text-sm text-outline">
+                      Continuar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Comprehensive feedback form — Item 4 */}
           {showFeedbackForm && (
@@ -866,7 +1132,7 @@ export function RotinaDetailClient({
             <span className="w-2 h-2 rounded-full bg-primary" />
             <h2 className="font-bold text-secondary text-sm uppercase tracking-wide">Treino de Hoje</h2>
           </div>
-          <SessaoCard sessao={treinoHoje} highlight alunoId={alunoId} semanaAtual={semanaAtual} />
+          <SessaoCard sessao={treinoHoje} highlight alunoId={alunoId} semanaAtual={semanaAtual} rotinaName={ciclo.nome} />
           {sessoes.length > 1 && (
             <div className="flex items-center gap-2 pt-2">
               <span className="w-2 h-2 rounded-full bg-outline-variant" />
@@ -878,7 +1144,7 @@ export function RotinaDetailClient({
       {sessoes
         .filter(s => s.id !== treinoHoje?.id)
         .map(s => (
-          <SessaoCard key={s.id} sessao={s} highlight={false} alunoId={alunoId} semanaAtual={semanaAtual} />
+          <SessaoCard key={s.id} sessao={s} highlight={false} alunoId={alunoId} semanaAtual={semanaAtual} rotinaName={ciclo.nome} />
         ))
       }
     </div>
