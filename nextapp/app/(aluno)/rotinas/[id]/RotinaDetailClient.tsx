@@ -87,13 +87,13 @@ function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; siz
       </div>
     )
   }
-  const dims = size === 'lg' ? 'w-24 h-20' : 'w-16 h-12'
+  const dims = size === 'lg' ? 'w-36 h-28' : 'w-16 h-12'
   return (
     <button onClick={() => setPlaying(true)} className={`relative ${dims} rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity`} title={`Ver: ${nome}`}>
-      <img src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
-      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-        <div className="w-7 h-7 bg-red-600 rounded-full flex items-center justify-center shadow">
-          <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[8px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
+      <img src={`https://img.youtube.com/vi/${vid}/hqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center shadow-lg">
+          <div className="w-0 h-0 border-t-[6px] border-b-[6px] border-l-[10px] border-t-transparent border-b-transparent border-l-[#64A1EE] ml-1" />
         </div>
       </div>
     </button>
@@ -212,7 +212,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
       if (nextVid) {
         const link = document.createElement('link')
         link.rel = 'prefetch'
-        link.href = `https://img.youtube.com/vi/${nextVid}/mqdefault.jpg`
+        link.href = `https://img.youtube.com/vi/${nextVid}/hqdefault.jpg`
         document.head.appendChild(link)
       }
     }
@@ -387,19 +387,21 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Background
-    ctx.fillStyle = '#0A1628'
-    ctx.fillRect(0, 0, W, H)
+    // Transparent background (PNG with alpha channel)
+    ctx.clearRect(0, 0, W, H)
 
     // Top accent bar
     ctx.fillStyle = '#1E6FD9'
     ctx.fillRect(0, 0, W, 6)
 
     // Brand
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'
+    ctx.shadowBlur = 8
     ctx.font = 'bold 22px system-ui, -apple-system, sans-serif'
     ctx.fillStyle = '#4A90D9'
     ctx.textAlign = 'center'
     ctx.fillText('MC TREINO', W / 2, 60)
+    ctx.shadowBlur = 0
 
     // Check circle
     ctx.beginPath()
@@ -417,17 +419,23 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
     ctx.stroke()
 
     // Title
+    ctx.shadowColor = 'rgba(0,0,0,0.85)'
+    ctx.shadowBlur = 12
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 36px system-ui, -apple-system, sans-serif'
     ctx.textAlign = 'center'
     ctx.fillText('Treino Concluído!', W / 2, 248)
+    ctx.shadowBlur = 0
 
     // Date
     const hoje = new Date()
     const dateStr = hoje.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
-    ctx.fillStyle = '#64748B'
+    ctx.shadowColor = 'rgba(0,0,0,0.5)'
+    ctx.shadowBlur = 6
+    ctx.fillStyle = '#CBD5E1'
     ctx.font = '19px system-ui, -apple-system, sans-serif'
     ctx.fillText(dateStr, W / 2, 285)
+    ctx.shadowBlur = 0
 
     // Day of week indicators
     const dayLetters = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']
@@ -466,11 +474,14 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
 
     // Treino name
     const treinoLabel = (sessao.dia_letra ? `${sessao.dia_letra} – ` : '') + sessao.nome
+    ctx.shadowColor = 'rgba(0,0,0,0.85)'
+    ctx.shadowBlur = 10
     ctx.fillStyle = '#FFFFFF'
     ctx.font = 'bold 26px system-ui, -apple-system, sans-serif'
     ctx.textAlign = 'center'
     const treinoText = treinoLabel.length > 28 ? treinoLabel.slice(0, 28) + '…' : treinoLabel
     ctx.fillText(treinoText, W / 2, rotinaName ? 468 : 445)
+    ctx.shadowBlur = 0
 
     // Muscle groups
     const grupos = [...new Set(
@@ -487,7 +498,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
 
     // Stats bar
     const statsY = 570
-    ctx.fillStyle = '#0F1E32'
+    ctx.fillStyle = 'rgba(15, 30, 50, 0.82)'
     ctx.roundRect(40, statsY - 30, W - 80, 80, 16)
     ctx.fill()
     const stats = [
@@ -507,7 +518,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
     })
 
     // Footer
-    ctx.fillStyle = '#060E1A'
+    ctx.fillStyle = 'rgba(6, 14, 26, 0.88)'
     ctx.fillRect(0, H - 70, W, 70)
     ctx.fillStyle = '#1E6FD9'
     ctx.font = 'bold 16px system-ui, -apple-system, sans-serif'
@@ -702,12 +713,12 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                 const intervalo = item.descanso_seg
 
                 return (
-                  <div key={item.id} className={`flex gap-3 p-4 transition-colors ${isDone ? 'bg-green-50/50' : ''}`}>
+                  <div key={item.id} className={`flex gap-3 p-5 transition-colors ${isDone ? 'bg-green-50/50' : ''}`}>
                     <div className="flex-1 min-w-0">
                       {showSubstituto && (
                         <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>
                       )}
-                      <p className="font-bold text-secondary text-base leading-tight">
+                      <p className="font-bold text-secondary text-lg leading-tight">
                         {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
                       </p>
                       {lastLoads[item.id] && (
@@ -989,6 +1000,9 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                       <Share2 size={16} />
                       Compartilhar meu treino
                     </button>
+                    <p className="text-xs text-outline text-center leading-snug px-2">
+                      Para manter o fundo transparente, use o botão Compartilhar.
+                    </p>
                     <button onClick={() => router.push('/treino')} className="btn-ghost w-full text-sm text-outline">
                       Continuar
                     </button>
