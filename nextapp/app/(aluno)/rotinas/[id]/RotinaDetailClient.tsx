@@ -125,6 +125,8 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
   const [workoutSessionId, setWorkoutSessionId] = useState<string | null>(null)
   const [cargaRegistrada, setCargaRegistrada] = useState<Record<string, string>>({})
   const [exercisesDone, setExercisesDone] = useState<Set<string>>(new Set())
+  // Per-series check: itemId → set of 1-based series indices done
+  const [seriesDone, setSeriesDone] = useState<Record<string, Set<number>>>({})
 
   // Incomplete exercises dialog
   const [showIncompleteDialog, setShowIncompleteDialog] = useState(false)
@@ -242,6 +244,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
     setShowFeedbackForm(false)
     setShowIncompleteDialog(false)
     setExercisesDone(new Set())
+    setSeriesDone({})
     setCargaRegistrada({})
     try {
       const { data } = await supabase.from('workout_sessions').insert({
@@ -254,11 +257,35 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
     } catch { /* non-critical */ }
   }
 
-  function toggleExerciseDone(itemId: string) {
+  function toggleExerciseDone(itemId: string, totalSeries?: number) {
     setExercisesDone(prev => {
       const s = new Set(prev)
-      s.has(itemId) ? s.delete(itemId) : s.add(itemId)
+      const nowDone = !s.has(itemId)
+      nowDone ? s.add(itemId) : s.delete(itemId)
+      // sync all series bubbles
+      if (totalSeries) {
+        setSeriesDone(sd => ({
+          ...sd,
+          [itemId]: nowDone
+            ? new Set(Array.from({ length: totalSeries }, (_, i) => i + 1))
+            : new Set(),
+        }))
+      }
       return s
+    })
+  }
+
+  function toggleSerie(itemId: string, serieNum: number, totalSeries: number) {
+    setSeriesDone(prev => {
+      const current = new Set(prev[itemId] ?? [])
+      current.has(serieNum) ? current.delete(serieNum) : current.add(serieNum)
+      const allDone = current.size === totalSeries
+      setExercisesDone(ed => {
+        const s = new Set(ed)
+        allDone ? s.add(itemId) : s.delete(itemId)
+        return s
+      })
+      return { ...prev, [itemId]: current }
     })
   }
 
@@ -730,24 +757,33 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                         </div>
                       )}
 
-                      {/* Series bubbles — visual only (Item 2) */}
+                      {/* Series bubbles — clickable */}
                       {iniciado && (series ?? 0) > 0 && (
                         <div className="flex items-center gap-1.5 mt-3">
-                          {Array.from({ length: series as number }).map((_, i) => (
-                            <div
-                              key={i + 1}
-                              className="w-7 h-7 rounded-full border-2 border-gray-200 bg-gray-50 text-xs font-bold text-gray-400 flex items-center justify-center"
-                            >
-                              {i + 1}
-                            </div>
-                          ))}
+                          {Array.from({ length: series as number }).map((_, i) => {
+                            const sNum = i + 1
+                            const checked = seriesDone[item.id]?.has(sNum) ?? false
+                            return (
+                              <button
+                                key={sNum}
+                                onClick={() => toggleSerie(item.id, sNum, series as number)}
+                                className={`w-7 h-7 rounded-full border-2 text-xs font-bold flex items-center justify-center transition-all ${
+                                  checked
+                                    ? 'border-green-500 bg-green-500 text-white'
+                                    : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-green-400 hover:text-green-500'
+                                }`}
+                              >
+                                {checked ? '✓' : sNum}
+                              </button>
+                            )
+                          })}
                         </div>
                       )}
 
-                      {/* Per-exercise completion check (Item 2) */}
+                      {/* Per-exercise completion check */}
                       {iniciado && (
                         <button
-                          onClick={() => toggleExerciseDone(item.id)}
+                          onClick={() => toggleExerciseDone(item.id, series ?? undefined)}
                           className={`mt-3 flex items-center gap-1.5 text-sm font-semibold transition-colors ${isDone ? 'text-green-600' : 'text-outline hover:text-green-600'}`}
                         >
                           <CheckCircle2 size={18} className={isDone ? 'fill-green-100' : ''} />

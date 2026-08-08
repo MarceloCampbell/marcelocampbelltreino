@@ -1,11 +1,29 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Loader2, CheckCircle2, AlertCircle, ChevronRight, Upload, RotateCcw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Loader2, CheckCircle2, AlertCircle, ChevronRight, Upload, RotateCcw, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { parseRoutine, assignBisetGroups, diaSemanaToNum } from '@/lib/routineParser'
 import type { RoutineRow } from '@/lib/routineParser'
+
+function calcSemanas(inicio: string, fim: string): string {
+  if (!inicio || !fim) return ''
+  const diff = new Date(fim).getTime() - new Date(inicio).getTime()
+  if (diff <= 0) return ''
+  const semanas = Math.round(diff / (1000 * 60 * 60 * 24 * 7))
+  return `${semanas} semana${semanas !== 1 ? 's' : ''}`
+}
+
+function normalizeEx(s: string): string {
+  return s
+    .toLowerCase()
+    .trim()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // strip accents
+    .replace(/[^\w\s]/g, '')                           // strip punctuation
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,6 +36,7 @@ interface ConflictItem {
   suggestions: Sugestao[]
   resolution: 'existing' | 'new' | 'ignore'
   selectedId?: string
+  selectedNome?: string  // name of free-search pick
   newNome?: string
   newGrupo?: string
 }
@@ -64,18 +83,72 @@ B      | Quarta     | Supino Reto          | 4      | 8      | 40kg   | 120s    
 
 function normalize(s: string) { return s.toLowerCase().trim() }
 
+// Free-text search component used per-conflict
+function ExercicioSearch({ onSelect }: { onSelect: (id: string, nome: string) => void }) {
+  const supabase = createClient()
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<Sugestao[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (q.trim().length < 2) { setResults([]); return }
+    const timeout = setTimeout(async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('exercicios')
+        .select('id, nome, grupo_muscular')
+        .ilike('nome', `%${q.trim()}%`)
+        .eq('ativo', true)
+        .limit(8)
+      setResults((data as Sugestao[]) ?? [])
+      setLoading(false)
+    }, 300)
+    return () => clearTimeout(timeout)
+  }, [q]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
+        <input
+          className="input text-sm pl-8"
+          placeholder="Buscar exercício na biblioteca..."
+          value={q}
+          onChange={e => setQ(e.target.value)}
+        />
+        {loading && <Loader2 size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-outline animate-spin" />}
+      </div>
+      {results.length > 0 && (
+        <div className="bg-white border border-outline-variant rounded-xl overflow-hidden">
+          {results.map(r => (
+            <button
+              key={r.id}
+              onClick={() => { onSelect(r.id, r.nome); setQ(''); setResults([]) }}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-gray-50 border-b border-outline-variant last:border-0"
+            >
+              <span className="text-sm text-secondary font-medium">{r.nome}</span>
+              <span className="text-xs text-outline ml-2">{r.grupo_muscular}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   const [step, setStep] = useState<Step>('entrada')
   const [error, setError] = useState('')
 
-  // Entrada state
+  // Entrada state — pre-populate alunoId from URL param
   const [texto, setTexto] = useState('')
-  const [alunoId, setAlunoId] = useState('')
+  const [alunoId, setAlunoId] = useState(searchParams.get('alunoId') ?? '')
   const [cicloNome, setCicloNome] = useState('')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
@@ -123,7 +196,7 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
       const mappingMap = new Map<string, { id: string; nome: string }>()
       for (const m of mappings ?? []) {
         const ex = (m.exercicio as any)
-        if (ex) mappingMap.set(normalize(m.input_name), { id: ex.id, nome: ex.nome })
+        if (ex) mappingMap.set(normalizeEx(m.input_name), { id: ex.id, nome: ex.nome })
       }
 
       // Classify each unique name
@@ -131,7 +204,7 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
       const toResolve: string[] = []
 
       for (const name of uniqueNames) {
-        const match = mappingMap.get(normalize(name))
+        const match = mappingMap.get(normalizeEx(name))
         if (match) {
           resolved.set(name, {
             exercicioId: match.id,
@@ -208,7 +281,8 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
         updated.set(c.inputName, { exercicioId: null, exercicioNome: c.newNome!, isAutoResolved: false, isNew: true, isIgnored: false })
       } else {
         const sug = conflicts.find(x => x.inputName === c.inputName)?.suggestions.find(s => s.id === c.selectedId)
-        updated.set(c.inputName, { exercicioId: c.selectedId!, exercicioNome: sug?.nome ?? c.inputName, isAutoResolved: false, isNew: false, isIgnored: false })
+        const nome = c.selectedNome ?? sug?.nome ?? c.inputName
+        updated.set(c.inputName, { exercicioId: c.selectedId!, exercicioNome: nome, isAutoResolved: false, isNew: false, isIgnored: false })
       }
     }
     setResolvedMap(updated)
@@ -416,7 +490,12 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
                 <input type="date" className="input" value={dataInicio} onChange={e => setDataInicio(e.target.value)} />
               </div>
               <div>
-                <label className="label">Data Fim</label>
+                <label className="label">
+                  Data Fim
+                  {dataInicio && dataFim && (
+                    <span className="ml-2 text-primary font-semibold text-xs">{calcSemanas(dataInicio, dataFim)}</span>
+                  )}
+                </label>
                 <input type="date" className="input" value={dataFim} onChange={e => setDataFim(e.target.value)} />
               </div>
             </div>
@@ -536,6 +615,18 @@ export function ImportarRotinaClient({ alunos }: { alunos: Aluno[] }) {
                       />
                       <span className="text-sm text-outline">Ignorar este exercício</span>
                     </label>
+                  </div>
+
+                  {/* Free-text search */}
+                  <div className="mt-3 pt-3 border-t border-outline-variant">
+                    {c.resolution === 'existing' && c.selectedId && c.selectedNome && (
+                      <p className="text-xs text-green-700 font-semibold mb-1.5">
+                        Selecionado: {c.selectedNome}
+                      </p>
+                    )}
+                    <ExercicioSearch
+                      onSelect={(id, nome) => updateConflict(i, { resolution: 'existing', selectedId: id, selectedNome: nome })}
+                    />
                   </div>
                 </div>
               ))}

@@ -19,6 +19,7 @@ export function Header({ title, actions, showSearch = false, showGlobalSearch = 
   return (
     <>
       <header className="h-16 bg-white border-b border-outline-variant flex items-center px-6 gap-4 sticky top-0 z-10">
+        <div className="w-10 flex-shrink-0 md:hidden" />
         <h1 className="text-lg font-extrabold text-secondary flex-1 truncate min-w-0">{title}</h1>
 
         {showSearch && (

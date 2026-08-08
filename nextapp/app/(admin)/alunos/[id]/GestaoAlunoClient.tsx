@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   TrendingUp, Calendar, Scale, AlertCircle, PenLine, Plus, KeyRound, X,
   ChevronLeft, ChevronDown, ChevronRight, ChevronUp, Trash2, Archive, RotateCcw,
-  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock, Download,
+  Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock, Download, Upload,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -1328,9 +1328,14 @@ ${s.sessao_itens.map((item, i) => `
                     </button>
                   ))}
                 </div>
-                <button onClick={() => setShowNovaRotina(true)} className="btn-primary text-sm px-4 py-2">
-                  <Plus size={16} /> Criar Rotina
-                </button>
+                <div className="flex gap-2">
+                  <Link href={`/importar-rotina?alunoId=${aluno.id}`} className="btn-secondary text-sm px-4 py-2">
+                    <Upload size={16} /> Importar
+                  </Link>
+                  <button onClick={() => setShowNovaRotina(true)} className="btn-primary text-sm px-4 py-2">
+                    <Plus size={16} /> Criar Rotina
+                  </button>
+                </div>
               </div>
 
               {/* Create rotina form */}
