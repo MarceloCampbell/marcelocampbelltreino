@@ -36,7 +36,10 @@ function parseSeries(s: string): number | null {
 
 function parseCargaKg(s: string): number | null {
   if (!s || s.toLowerCase().includes('sem carga')) return null
-  const num = parseFloat(s.replace(/[^\d.,]/g, '').replace(',', '.'))
+  // Extract only the FIRST numeric token — avoids "60-70kg" → 6070
+  const m = s.match(/(\d+[.,]?\d*)/)
+  if (!m) return null
+  const num = parseFloat(m[1].replace(',', '.'))
   return isNaN(num) ? null : num
 }
 
