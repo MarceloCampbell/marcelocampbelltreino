@@ -58,19 +58,23 @@ export async function POST(request: NextRequest) {
 
   // ── Convite ──────────────────────────────────────────────────────────────────
   if (tipo === 'convite') {
-    const { error } = await admin.auth.admin.inviteUserByEmail(email, {
+    const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${origin}/auth/callback`,
     })
 
-    if (error) {
-      const msg = error.message?.toLowerCase() ?? ''
-      if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
-        return NextResponse.json({
-          sucesso: false,
-          erro: 'Este aluno já possui conta ativa. Use "Redefinir senha" para reenviar o acesso.',
-        }, { status: 409 })
-      }
-      return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o convite.' }, { status: 400 })
+    if (inviteError) {
+      const msg = inviteError.message?.toLowerCase() ?? ''
+      const jaExiste = msg.includes('already') || msg.includes('registered') || msg.includes('exists')
+
+      if (!jaExiste)
+        return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o convite.' }, { status: 400 })
+
+      // Aluno já tem conta — envia reset de senha para que possa acessar
+      const { error: resetError } = await admin.auth.resetPasswordForEmail(email, {
+        redirectTo: `${origin}/auth/nova-senha`,
+      })
+      if (resetError)
+        return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o email de boas-vindas.' }, { status: 400 })
     }
 
     await supabase.from('alunos')
