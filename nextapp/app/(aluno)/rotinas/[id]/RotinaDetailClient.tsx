@@ -715,23 +715,21 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                 return (
                   <div key={item.id} className={`p-4 transition-colors ${isDone ? 'bg-green-50/50' : ''}`}>
 
-                    {/* 1. Nome + botão substituto */}
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <div className="flex-1 min-w-0">
-                        {showSubstituto && (
-                          <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>
-                        )}
-                        <p className="font-bold text-secondary text-lg leading-tight">
-                          {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
-                        </p>
-                      </div>
+                    {/* 1. Nome + botão substituto inline */}
+                    <div className="flex items-center gap-2 flex-wrap mb-3">
+                      {showSubstituto && (
+                        <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wide">Substituto:</span>
+                      )}
+                      <p className="font-bold text-secondary text-lg leading-tight">
+                        {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
+                      </p>
                       {ex?.substituto && (
                         <button
                           onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
-                          className="flex items-center gap-1 text-xs text-orange-500 font-semibold hover:text-orange-700 transition-colors flex-shrink-0 mt-1"
+                          className="flex items-center gap-1 text-xs text-orange-500 font-semibold hover:text-orange-700 transition-colors"
                         >
                           <RefreshCw size={11} />
-                          {substitutoAberto === item.id ? 'Original' : 'Sub'}
+                          {substitutoAberto === item.id ? 'Original' : 'Substituto'}
                         </button>
                       )}
                     </div>
@@ -747,7 +745,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                     <div className="flex items-center gap-3 mb-3">
                       {(series || repeticoes) && (
                         <p className="text-sm font-semibold text-secondary">
-                          {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
+                          Séries: {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
                         </p>
                       )}
                       {iniciado && (series ?? 0) > 0 && (
@@ -788,7 +786,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                     {intervalo && (
                       <button
                         onClick={() => startRestTimer(item)}
-                        className={`flex items-center justify-between w-full text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
+                        className={`flex items-center gap-1.5 text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
                       >
                         <span>{isResting ? `Intervalo: ${fmt(restTimer!.secs)}` : `Intervalo: ${intervalo}s`}</span>
                         <Clock size={14} className="flex-shrink-0" />
