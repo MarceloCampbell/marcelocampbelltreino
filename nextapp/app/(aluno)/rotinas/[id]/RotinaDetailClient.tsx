@@ -71,7 +71,7 @@ function extractYoutubeId(url: string | null): string | null {
   return m ? m[1] : null
 }
 
-function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; size?: 'sm' | 'lg' }) {
+function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; size?: 'sm' | 'lg' | 'full' }) {
   const [playing, setPlaying] = useState(false)
   const vid = extractYoutubeId(url)
   if (!vid) return null
@@ -87,13 +87,13 @@ function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; siz
       </div>
     )
   }
-  const dims = size === 'lg' ? 'w-36 h-28' : 'w-16 h-12'
+  const dims = size === 'full' ? 'w-full aspect-video' : size === 'lg' ? 'w-36 h-28' : 'w-16 h-12'
   return (
-    <button onClick={() => setPlaying(true)} className={`relative ${dims} rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity`} title={`Ver: ${nome}`}>
+    <button onClick={() => setPlaying(true)} className={`relative ${dims} rounded-xl overflow-hidden flex-shrink-0 block hover:opacity-95 transition-opacity`} title={`Ver: ${nome}`}>
       <img src={`https://img.youtube.com/vi/${vid}/hqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-sm flex items-center justify-center shadow-lg">
-          <div className="w-0 h-0 border-t-[6px] border-b-[6px] border-l-[10px] border-t-transparent border-b-transparent border-l-[#64A1EE] ml-1" />
+        <div className="w-6 h-6 rounded-full bg-white/70 backdrop-blur-sm flex items-center justify-center shadow">
+          <div className="w-0 h-0 border-t-[4px] border-b-[4px] border-l-[7px] border-t-transparent border-b-transparent border-l-[#64A1EE] ml-0.5" />
         </div>
       </div>
     </button>
@@ -713,119 +713,111 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                 const intervalo = item.descanso_seg
 
                 return (
-                  <div key={item.id} className={`flex gap-3 p-5 transition-colors ${isDone ? 'bg-green-50/50' : ''}`}>
-                    <div className="flex-1 min-w-0">
-                      {showSubstituto && (
-                        <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>
-                      )}
-                      <p className="font-bold text-secondary text-lg leading-tight">
-                        {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
-                      </p>
-                      {lastLoads[item.id] && (
-                        <p className="text-xs text-green-600 font-medium mt-0.5">
-                          Última carga: {lastLoads[item.id]}kg
+                  <div key={item.id} className={`p-4 transition-colors ${isDone ? 'bg-green-50/50' : ''}`}>
+
+                    {/* 1. Nome + botão substituto */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex-1 min-w-0">
+                        {showSubstituto && (
+                          <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>
+                        )}
+                        <p className="font-bold text-secondary text-lg leading-tight">
+                          {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
                         </p>
-                      )}
-
-                      <div className="mt-2 space-y-1">
-                        {(series || repeticoes) && (
-                          <p className="text-sm text-secondary">
-                            <span className="font-semibold">Séries:</span>{' '}
-                            {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
-                          </p>
-                        )}
-                        {carga && !iniciado && (
-                          <p className="text-sm text-secondary">
-                            <span className="font-semibold">Carga sugerida:</span> {carga}kg
-                          </p>
-                        )}
-                        {intervalo && (
-                          <p className="text-sm text-secondary">
-                            <span className="font-semibold">Intervalo:</span> {intervalo}s
-                          </p>
+                        {lastLoads[item.id] && (
+                          <p className="text-xs text-green-600 font-medium mt-0.5">Última carga: {lastLoads[item.id]}kg</p>
                         )}
                       </div>
-
-                      {/* Weight input — free text */}
-                      {iniciado && (
-                        <div className="flex items-center gap-2 mt-3">
-                          <span className="text-sm font-semibold text-secondary">Carga:</span>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            className="w-32 border border-outline-variant rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-primary"
-                            placeholder={carga ? String(carga) : 'ex: 40/45/50'}
-                            value={cargaRegistrada[item.id] ?? ''}
-                            onChange={e => setCargaRegistrada(prev => ({ ...prev, [item.id]: e.target.value }))}
-                          />
-                        </div>
-                      )}
-
-                      {item.observacoes && (
-                        <div className="mt-2.5">
-                          <p className="text-sm font-semibold text-secondary">Instruções:</p>
-                          <p className="text-sm text-outline mt-0.5 leading-snug">{item.observacoes}</p>
-                        </div>
-                      )}
-
-                      {/* Series bubbles — clickable */}
-                      {iniciado && (series ?? 0) > 0 && (
-                        <div className="flex items-center gap-1.5 mt-3">
-                          {Array.from({ length: series as number }).map((_, i) => {
-                            const sNum = i + 1
-                            const checked = seriesDone[item.id]?.has(sNum) ?? false
-                            return (
-                              <button
-                                key={sNum}
-                                onClick={() => toggleSerie(item.id, sNum, series as number)}
-                                className={`w-7 h-7 rounded-full border-2 text-xs font-bold flex items-center justify-center transition-all ${
-                                  checked
-                                    ? 'border-green-500 bg-green-500 text-white'
-                                    : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-green-400 hover:text-green-500'
-                                }`}
-                              >
-                                {checked ? '✓' : sNum}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-
-                      {/* Per-exercise completion check */}
-                      {iniciado && (
+                      {ex?.substituto && (
                         <button
-                          onClick={() => toggleExerciseDone(item.id, series ?? undefined)}
-                          className={`mt-3 flex items-center gap-1.5 text-sm font-semibold transition-colors ${isDone ? 'text-green-600' : 'text-outline hover:text-green-600'}`}
+                          onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
+                          className="flex items-center gap-1 text-xs text-orange-500 font-semibold hover:text-orange-700 transition-colors flex-shrink-0 mt-1"
                         >
-                          <CheckCircle2 size={18} className={isDone ? 'fill-green-100' : ''} />
-                          {isDone ? 'Exercício concluído' : 'Marcar como feito'}
+                          <RefreshCw size={11} />
+                          {substitutoAberto === item.id ? 'Original' : 'Sub'}
                         </button>
                       )}
-
-                      <div className="flex items-center gap-2 mt-3 flex-wrap">
-                        {ex?.substituto && (
-                          <button
-                            onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
-                            className="flex items-center gap-1 text-xs text-orange-600 font-semibold hover:text-orange-700 transition-colors"
-                          >
-                            <RefreshCw size={11} />
-                            {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => startRestTimer(item)}
-                          className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-                        >
-                          <Clock size={11} />
-                          {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
-                        </button>
-                      </div>
                     </div>
 
+                    {/* 2. Vídeo — largura total */}
                     {videoToShow?.video_url && (
-                      <div className="flex-shrink-0">
-                        <VideoThumb url={videoToShow.video_url} nome={videoToShow.nome} size="lg" />
+                      <div className="mb-3">
+                        <VideoThumb url={videoToShow.video_url} nome={videoToShow.nome} size="full" />
                       </div>
+                    )}
+
+                    {/* 3. Séries + bubbles de marcação */}
+                    {(series || repeticoes) && (
+                      <p className="text-sm font-semibold text-secondary mb-2">
+                        {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
+                      </p>
+                    )}
+                    {iniciado && (series ?? 0) > 0 && (
+                      <div className="flex items-center gap-1.5 mb-3">
+                        {Array.from({ length: series as number }).map((_, i) => {
+                          const sNum = i + 1
+                          const checked = seriesDone[item.id]?.has(sNum) ?? false
+                          return (
+                            <button
+                              key={sNum}
+                              onClick={() => toggleSerie(item.id, sNum, series as number)}
+                              className={`w-8 h-8 rounded-full border-2 text-sm font-bold flex items-center justify-center transition-all ${
+                                checked
+                                  ? 'border-green-500 bg-green-500 text-white'
+                                  : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-green-400 hover:text-green-500'
+                              }`}
+                            >
+                              {checked ? '✓' : sNum}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* 4. Marcar como feito */}
+                    {iniciado && (
+                      <button
+                        onClick={() => toggleExerciseDone(item.id, series ?? undefined)}
+                        className={`flex items-center gap-1.5 text-sm font-semibold transition-colors mb-3 ${isDone ? 'text-green-600' : 'text-outline hover:text-green-600'}`}
+                      >
+                        <CheckCircle2 size={18} className={isDone ? 'fill-green-100' : ''} />
+                        {isDone ? 'Exercício concluído' : 'Marcar como feito'}
+                      </button>
+                    )}
+
+                    {/* 5. Intervalo — só ícone + valor, sem rótulo */}
+                    {intervalo && (
+                      <button
+                        onClick={() => startRestTimer(item)}
+                        className={`flex items-center gap-1.5 text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
+                      >
+                        <Clock size={14} />
+                        <span>{isResting ? fmt(restTimer!.secs) : `${intervalo}s`}</span>
+                      </button>
+                    )}
+
+                    {/* 6. Carga */}
+                    {iniciado ? (
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sm font-semibold text-secondary">Carga:</span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="w-32 border border-outline-variant rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-primary"
+                          placeholder={carga ? String(carga) : 'ex: 40/45/50'}
+                          value={cargaRegistrada[item.id] ?? ''}
+                          onChange={e => setCargaRegistrada(prev => ({ ...prev, [item.id]: e.target.value }))}
+                        />
+                      </div>
+                    ) : carga ? (
+                      <p className="text-sm text-secondary mb-2">
+                        <span className="font-semibold">Carga sugerida:</span> {carga}kg
+                      </p>
+                    ) : null}
+
+                    {/* 7. Instruções */}
+                    {item.observacoes && (
+                      <p className="text-sm text-outline leading-snug">{item.observacoes}</p>
                     )}
                   </div>
                 )
