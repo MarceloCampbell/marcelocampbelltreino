@@ -100,12 +100,15 @@ function VideoThumb({ url, nome, size = 'sm' }: { url: string; nome: string; siz
   )
 }
 
-function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
+function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName, trainingActiveElsewhere, onTrainingStart, onTrainingEnd }: {
   sessao: Sessao
   highlight: boolean
   alunoId: string
   semanaAtual?: number
   rotinaName?: string
+  trainingActiveElsewhere?: boolean
+  onTrainingStart?: () => void
+  onTrainingEnd?: () => void
 }) {
   const supabase = createClient()
   const router = useRouter()
@@ -237,6 +240,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
   }
 
   async function iniciarTreino() {
+    onTrainingStart?.()
     setIniciado(true)
     setSessionSecs(0)
     setIsRealizado(false)
@@ -292,7 +296,8 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
   async function finalizarTreino() {
     setCompleting(true)
     setActionError(null)
-    setIniciado(false) // Item 5: stop timer on finalization
+    setIniciado(false)
+    onTrainingEnd?.()
     try {
       const { error: err } = await supabase.from('sessoes_treino').update({ status: 'realizado' }).eq('id', sessao.id)
       if (err) throw err
@@ -621,10 +626,17 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
 
           <div className="px-5 pt-4 pb-1">
             {!iniciado ? (
-              <button onClick={iniciarTreino} className="btn-primary w-full">
-                <Play size={15} />
-                {isRealizado ? 'Refazer Treino' : 'Iniciar Treino'}
-              </button>
+              trainingActiveElsewhere ? (
+                <div className="btn-primary w-full opacity-50 cursor-not-allowed justify-center">
+                  <Play size={15} />
+                  Outro treino em andamento
+                </div>
+              ) : (
+                <button onClick={iniciarTreino} className="btn-primary w-full">
+                  <Play size={15} />
+                  {isRealizado ? 'Refazer Treino' : 'Iniciar Treino'}
+                </button>
+              )
             ) : (
               <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-2.5">
                 <div className="flex items-center gap-2">
@@ -632,7 +644,7 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                   <span className="text-lg font-bold text-green-700 tabular-nums">{fmt(sessionSecs)}</span>
                   <span className="text-xs text-green-600">em andamento</span>
                 </div>
-                <button onClick={() => setIniciado(false)} className="text-xs text-green-500 hover:text-green-700">Pausar</button>
+                <button onClick={() => { setIniciado(false); onTrainingEnd?.() }} className="text-xs text-green-500 hover:text-green-700">Pausar</button>
               </div>
             )}
           </div>
@@ -782,15 +794,22 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                       </button>
                     )}
 
-                    {/* 5. Intervalo: label à esquerda, ícone à direita */}
+                    {/* 5. Intervalo: clicável só quando em treino */}
                     {intervalo && (
-                      <button
-                        onClick={() => startRestTimer(item)}
-                        className={`flex items-center gap-1.5 text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
-                      >
-                        <span>{isResting ? `Intervalo: ${fmt(restTimer!.secs)}` : `Intervalo: ${intervalo}s`}</span>
-                        <Clock size={14} className="flex-shrink-0" />
-                      </button>
+                      iniciado ? (
+                        <button
+                          onClick={() => startRestTimer(item)}
+                          className={`flex items-center gap-1.5 text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
+                        >
+                          <span>{isResting ? `Intervalo: ${fmt(restTimer!.secs)}` : `Intervalo: ${intervalo}s`}</span>
+                          <Clock size={14} className="flex-shrink-0" />
+                        </button>
+                      ) : (
+                        <p className="flex items-center gap-1.5 text-sm text-secondary mb-3">
+                          <span>Intervalo: {intervalo}s</span>
+                          <Clock size={14} className="text-outline flex-shrink-0" />
+                        </p>
+                      )
                     )}
 
                     {/* 6. Carga */}
@@ -814,7 +833,10 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
 
                     {/* 7. Instruções */}
                     {item.observacoes && (
-                      <p className="text-sm text-outline leading-snug">{item.observacoes}</p>
+                      <div>
+                        <p className="text-sm font-semibold text-secondary mb-0.5">Instruções:</p>
+                        <p className="text-sm text-outline leading-snug">{item.observacoes}</p>
+                      </div>
                     )}
                   </div>
                 )
@@ -1155,6 +1177,7 @@ export function RotinaDetailClient({
   alunoId: string
   semanaAtual?: number
 }) {
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const hoje = new Date().getDay()
   const isAtivo = ciclo.status === 'ativo'
 
@@ -1171,7 +1194,12 @@ export function RotinaDetailClient({
             <span className="w-2 h-2 rounded-full bg-primary" />
             <h2 className="font-bold text-secondary text-sm uppercase tracking-wide">Treino de Hoje</h2>
           </div>
-          <SessaoCard sessao={treinoHoje} highlight alunoId={alunoId} semanaAtual={semanaAtual} rotinaName={ciclo.nome} />
+          <SessaoCard
+            sessao={treinoHoje} highlight alunoId={alunoId} semanaAtual={semanaAtual} rotinaName={ciclo.nome}
+            trainingActiveElsewhere={activeSessionId !== null && activeSessionId !== treinoHoje.id}
+            onTrainingStart={() => setActiveSessionId(treinoHoje.id)}
+            onTrainingEnd={() => setActiveSessionId(null)}
+          />
           {sessoes.length > 1 && (
             <div className="flex items-center gap-2 pt-2">
               <span className="w-2 h-2 rounded-full bg-outline-variant" />
@@ -1183,7 +1211,12 @@ export function RotinaDetailClient({
       {sessoes
         .filter(s => s.id !== treinoHoje?.id)
         .map(s => (
-          <SessaoCard key={s.id} sessao={s} highlight={false} alunoId={alunoId} semanaAtual={semanaAtual} rotinaName={ciclo.nome} />
+          <SessaoCard
+            key={s.id} sessao={s} highlight={false} alunoId={alunoId} semanaAtual={semanaAtual} rotinaName={ciclo.nome}
+            trainingActiveElsewhere={activeSessionId !== null && activeSessionId !== s.id}
+            onTrainingStart={() => setActiveSessionId(s.id)}
+            onTrainingEnd={() => setActiveSessionId(null)}
+          />
         ))
       }
     </div>
