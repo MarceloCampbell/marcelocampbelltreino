@@ -7,6 +7,7 @@ import {
   TrendingUp, Calendar, Scale, AlertCircle, PenLine, Plus, KeyRound, X,
   ChevronLeft, ChevronDown, ChevronRight, ChevronUp, Trash2, Archive, RotateCcw,
   Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock, Download, Upload,
+  Mail, Send,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -304,6 +305,34 @@ export function GestaoAlunoClient({
   const [novaSenha, setNovaSenha] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
   const [resetMsg, setResetMsg] = useState('')
+
+  // ── Email actions (convite / redefinir senha via API)
+  const [emailLoading, setEmailLoading] = useState<'convite' | 'redefinir_senha' | null>(null)
+  const [conviteCooldown, setConviteCooldown] = useState(0)
+  const [redefinirCooldown, setRedefinirCooldown] = useState(0)
+  const [emailLastSent, setEmailLastSent] = useState<{ convite?: string; redefinir_senha?: string }>({
+    convite: aluno.ultimo_convite_enviado_em ?? undefined,
+    redefinir_senha: aluno.ultima_redefinicao_enviada_em ?? undefined,
+  })
+  const [emailToast, setEmailToast] = useState<{ tipo: 'sucesso' | 'erro'; msg: string } | null>(null)
+
+  useEffect(() => {
+    if (conviteCooldown <= 0) return
+    const t = setTimeout(() => setConviteCooldown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [conviteCooldown])
+
+  useEffect(() => {
+    if (redefinirCooldown <= 0) return
+    const t = setTimeout(() => setRedefinirCooldown(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [redefinirCooldown])
+
+  useEffect(() => {
+    if (!emailToast) return
+    const t = setTimeout(() => setEmailToast(null), 5000)
+    return () => clearTimeout(t)
+  }, [emailToast])
 
   // ── Aluno status
   const [alunoStatus, setAlunoStatus] = useState<string>(aluno.status ?? 'ativo')
@@ -957,6 +986,38 @@ export function GestaoAlunoClient({
     if (!res.ok) { setResetMsg(json.error ?? 'Erro ao redefinir'); return }
     setResetMsg('Senha redefinida com sucesso!')
     setNovaSenha('')
+  }
+
+  function fmtLastSent(iso: string | undefined): string | null {
+    if (!iso) return null
+    const d = new Date(iso)
+    return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  async function enviarEmail(tipo: 'convite' | 'redefinir_senha') {
+    setEmailLoading(tipo)
+    setEmailToast(null)
+    try {
+      const res = await fetch('/api/admin/enviar-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alunoId: aluno.id, tipo }),
+      })
+      const json = await res.json()
+      if (json.sucesso) {
+        const now = new Date().toISOString()
+        setEmailLastSent(prev => ({ ...prev, [tipo]: now }))
+        if (tipo === 'convite') setConviteCooldown(60)
+        else setRedefinirCooldown(60)
+        setEmailToast({ tipo: 'sucesso', msg: `Email enviado para ${json.email}` })
+      } else {
+        setEmailToast({ tipo: 'erro', msg: json.erro ?? 'Erro ao enviar email' })
+      }
+    } catch {
+      setEmailToast({ tipo: 'erro', msg: 'Erro de conexão ao enviar email' })
+    } finally {
+      setEmailLoading(null)
+    }
   }
 
   async function inativarAluno() {
@@ -2520,6 +2581,64 @@ ${s.sessao_itens.map((item, i) => `
                 <button onClick={() => { setShowResetModal(true); setResetMsg('') }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
                   <KeyRound size={14} /> Redefinir Senha
                 </button>
+
+                {/* ── Enviar boas-vindas ── */}
+                <div>
+                  <button
+                    onClick={() => enviarEmail('convite')}
+                    disabled={emailLoading !== null || conviteCooldown > 0}
+                    className="btn-secondary text-xs py-2 px-3 justify-center w-full disabled:opacity-60"
+                  >
+                    {emailLoading === 'convite' ? (
+                      <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+                    ) : (
+                      <Mail size={14} />
+                    )}
+                    {conviteCooldown > 0
+                      ? `Reenviar em 0:${String(conviteCooldown).padStart(2, '0')}`
+                      : 'Enviar boas-vindas'}
+                  </button>
+                  {emailLastSent.convite && (
+                    <p className="text-[10px] text-outline mt-1 text-center">
+                      Último envio: {fmtLastSent(emailLastSent.convite)}
+                    </p>
+                  )}
+                </div>
+
+                {/* ── Redefinir senha (email) ── */}
+                <div>
+                  <button
+                    onClick={() => enviarEmail('redefinir_senha')}
+                    disabled={emailLoading !== null || redefinirCooldown > 0}
+                    className="btn-secondary text-xs py-2 px-3 justify-center w-full disabled:opacity-60"
+                  >
+                    {emailLoading === 'redefinir_senha' ? (
+                      <span className="animate-spin inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full" />
+                    ) : (
+                      <Send size={14} />
+                    )}
+                    {redefinirCooldown > 0
+                      ? `Reenviar em 0:${String(redefinirCooldown).padStart(2, '0')}`
+                      : 'Redefinir senha (email)'}
+                  </button>
+                  {emailLastSent.redefinir_senha && (
+                    <p className="text-[10px] text-outline mt-1 text-center">
+                      Último envio: {fmtLastSent(emailLastSent.redefinir_senha)}
+                    </p>
+                  )}
+                </div>
+
+                {/* ── Toast de feedback ── */}
+                {emailToast && (
+                  <div className={`text-xs px-3 py-2 rounded-lg font-medium flex items-center gap-2 ${
+                    emailToast.tipo === 'sucesso'
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : 'bg-red-50 text-red-700 border border-red-200'
+                  }`}>
+                    {emailToast.tipo === 'sucesso' ? '✓' : '✕'} {emailToast.msg}
+                  </div>
+                )}
+
                 {alunoStatus === 'ativo' ? (
                   <button
                     onClick={inativarAluno}
