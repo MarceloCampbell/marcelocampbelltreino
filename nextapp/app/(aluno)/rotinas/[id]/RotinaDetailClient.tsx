@@ -724,9 +724,6 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                         <p className="font-bold text-secondary text-lg leading-tight">
                           {showSubstituto ? ex!.substituto!.nome : (ex?.nome ?? '–')}
                         </p>
-                        {lastLoads[item.id] && (
-                          <p className="text-xs text-green-600 font-medium mt-0.5">Última carga: {lastLoads[item.id]}kg</p>
-                        )}
                       </div>
                       {ex?.substituto && (
                         <button
@@ -746,33 +743,35 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                       </div>
                     )}
 
-                    {/* 3. Séries + bubbles de marcação */}
-                    {(series || repeticoes) && (
-                      <p className="text-sm font-semibold text-secondary mb-2">
-                        {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
-                      </p>
-                    )}
-                    {iniciado && (series ?? 0) > 0 && (
-                      <div className="flex items-center gap-1.5 mb-3">
-                        {Array.from({ length: series as number }).map((_, i) => {
-                          const sNum = i + 1
-                          const checked = seriesDone[item.id]?.has(sNum) ?? false
-                          return (
-                            <button
-                              key={sNum}
-                              onClick={() => toggleSerie(item.id, sNum, series as number)}
-                              className={`w-8 h-8 rounded-full border-2 text-sm font-bold flex items-center justify-center transition-all ${
-                                checked
-                                  ? 'border-green-500 bg-green-500 text-white'
-                                  : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-green-400 hover:text-green-500'
-                              }`}
-                            >
-                              {checked ? '✓' : sNum}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                    {/* 3. Séries + bubbles na mesma linha */}
+                    <div className="flex items-center gap-3 mb-3">
+                      {(series || repeticoes) && (
+                        <p className="text-sm font-semibold text-secondary">
+                          {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
+                        </p>
+                      )}
+                      {iniciado && (series ?? 0) > 0 && (
+                        <div className="flex items-center gap-1.5">
+                          {Array.from({ length: series as number }).map((_, i) => {
+                            const sNum = i + 1
+                            const checked = seriesDone[item.id]?.has(sNum) ?? false
+                            return (
+                              <button
+                                key={sNum}
+                                onClick={() => toggleSerie(item.id, sNum, series as number)}
+                                className={`w-8 h-8 rounded-full border-2 text-sm font-bold flex items-center justify-center transition-all ${
+                                  checked
+                                    ? 'border-green-500 bg-green-500 text-white'
+                                    : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-green-400 hover:text-green-500'
+                                }`}
+                              >
+                                {checked ? '✓' : sNum}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
 
                     {/* 4. Marcar como feito */}
                     {iniciado && (
@@ -785,14 +784,14 @@ function SessaoCard({ sessao, highlight, alunoId, semanaAtual, rotinaName }: {
                       </button>
                     )}
 
-                    {/* 5. Intervalo — só ícone + valor, sem rótulo */}
+                    {/* 5. Intervalo: label à esquerda, ícone à direita */}
                     {intervalo && (
                       <button
                         onClick={() => startRestTimer(item)}
-                        className={`flex items-center gap-1.5 text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
+                        className={`flex items-center justify-between w-full text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
                       >
-                        <Clock size={14} />
-                        <span>{isResting ? fmt(restTimer!.secs) : `${intervalo}s`}</span>
+                        <span>{isResting ? `Intervalo: ${fmt(restTimer!.secs)}` : `Intervalo: ${intervalo}s`}</span>
+                        <Clock size={14} className="flex-shrink-0" />
                       </button>
                     )}
 
