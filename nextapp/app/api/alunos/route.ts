@@ -45,6 +45,13 @@ export async function POST(request: NextRequest) {
 
   if (authError) return NextResponse.json({ error: authError.message }, { status: 400 })
 
+  // Envia email de boas-vindas automaticamente
+  const origin = process.env.NEXT_PUBLIC_APP_URL
+    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  await adminSupabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${origin}/auth/nova-senha`,
+  })
+
   // Aguarda trigger criar a linha em usuarios (é síncrono), depois atualiza campos extras
   if (telefone || data_nascimento) {
     await supabase
