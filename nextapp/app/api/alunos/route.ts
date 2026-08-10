@@ -26,33 +26,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 403 })
 
   const body = await request.json()
-  const { email, senha, nome, telefone, data_nascimento } = body
+  const { email, nome, telefone, data_nascimento } = body
 
   if (!email || !nome) return NextResponse.json({ error: 'Email e nome são obrigatórios' }, { status: 400 })
 
   const adminSupabase = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
-    email,
-    password: senha || Math.random().toString(36).slice(-10) + 'A1!',
-    email_confirm: true,
-    user_metadata: { nome },
-    app_metadata: { papel: 'aluno' },
+  const origin = process.env.NEXT_PUBLIC_APP_URL
+    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+
+  // inviteUserByEmail cria o usuário E envia o email de boas-vindas em uma chamada só
+  const { data: authData, error: authError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${origin}/auth/nova-senha`,
+    data: { nome },
   })
 
   if (authError) return NextResponse.json({ error: authError.message }, { status: 400 })
 
-  // Envia email de boas-vindas automaticamente
-  const origin = process.env.NEXT_PUBLIC_APP_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
-  await adminSupabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/nova-senha`,
+  // Define app_metadata (papel) separadamente — inviteUserByEmail só aceita user_metadata via data
+  await adminSupabase.auth.admin.updateUserById(authData.user.id, {
+    app_metadata: { papel: 'aluno' },
   })
 
-  // Aguarda trigger criar a linha em usuarios (é síncrono), depois atualiza campos extras
+  // Atualiza campos extras no perfil se fornecidos
   if (telefone || data_nascimento) {
     await supabase
       .from('usuarios')
