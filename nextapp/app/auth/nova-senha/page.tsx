@@ -44,9 +44,8 @@ export default function NovaSenhaPage() {
 
     if (error) { setError('Não foi possível salvar a senha. O link pode ter expirado — solicite um novo ao seu treinador.'); return }
 
-    // Faz logout para forçar novo login com as credenciais salvas
-    await supabase.auth.signOut()
-    router.push('/auth/login?reset=ok')
+    // Sessão já está ativa — redireciona direto sem precisar fazer login novamente
+    router.push('/')
   }
 
   return (
