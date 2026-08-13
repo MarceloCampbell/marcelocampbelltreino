@@ -273,6 +273,8 @@ export function GestaoAlunoClient({
   })
   const [sessaoItens, setSessaoItens] = useState<ItemForm[]>([])
   const [numSemanas, setNumSemanas] = useState(4)
+  const [adjustWeeksOpen, setAdjustWeeksOpen] = useState(false)
+  const [adjustingWeeks, setAdjustingWeeks] = useState(false)
   const [searchEx, setSearchEx] = useState('')
   const [grupoFilter, setGrupoFilter] = useState('')
   const [savingDia, setSavingDia] = useState(false)
@@ -520,10 +522,17 @@ export function GestaoAlunoClient({
 
   // ─── Functions ─────────────────────────────────────────────────────────────
 
+  function getActualWeeks(rotina: Rotina): number {
+    const fromData = rotina.sessoes_treino.flatMap(s => s.sessao_itens)
+      .reduce((max, item) => Math.max(max, (item.periodizacao_semanal ?? []).length), 0)
+    return Math.max(fromData, calcNumSemanas(rotina), 1)
+  }
+
   function openRotina(rotina: Rotina, subTab: 0 | 1 = 1) {
     setSelectedRotina(rotina)
     setRotinaSubTab(subTab)
-    setNumSemanas(calcNumSemanas(rotina))
+    setNumSemanas(getActualWeeks(rotina))
+    setAdjustWeeksOpen(false)
     setShowVolume(false)
     setSessaoItens([])
     setNovaDia({ nome: '', dia_letra: 'A', dia_semana_numero: '', tipo: 'musculacao', orientacoes_aluno: '', descricao_aerobico: '', tipo_aerobico: '' })
@@ -568,7 +577,7 @@ export function GestaoAlunoClient({
       const updated = data as unknown as Rotina
       setSelectedRotina(updated)
       setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updated : c))
-      setNumSemanas(calcNumSemanas(updated))
+      setNumSemanas(getActualWeeks(updated))
       supabase.from('rotina_change_logs').insert({
         ciclo_id: selectedRotina.id,
         descricao: `Rotina "${editRotinaForm.nome.trim()}" editada`,
@@ -856,6 +865,40 @@ export function GestaoAlunoClient({
         ? [...i.periodizacao, ...buildPeriodizacao(n - i.periodizacao.length).map((p, j) => ({ ...p, semana: i.periodizacao.length + j + 1 }))]
         : i.periodizacao.slice(0, n),
     })))
+  }
+
+  async function applyAdjustWeeks(n: number) {
+    if (!selectedRotina) return
+    setAdjustingWeeks(true)
+    const allItems = selectedRotina.sessoes_treino.flatMap(s => s.sessao_itens)
+    await Promise.all(allItems.map(item => {
+      const current: SemanaItem[] = item.periodizacao_semanal ?? []
+      let newPeriod: SemanaItem[]
+      if (n > current.length) {
+        const last = current[current.length - 1] ?? { semana: 0, series: String(item.series ?? 3), repeticoes: item.repeticoes ?? '10-12', carga_kg: String(item.carga_kg ?? '') }
+        const extra = Array.from({ length: n - current.length }, (_, i) => ({
+          semana: current.length + i + 1,
+          series: last.series,
+          repeticoes: last.repeticoes,
+          carga_kg: last.carga_kg,
+        }))
+        newPeriod = [...current, ...extra]
+      } else {
+        newPeriod = current.slice(0, n)
+      }
+      return supabase.from('sessao_itens').update({ periodizacao_semanal: newPeriod }).eq('id', item.id)
+    }))
+    const { data: updated } = await supabase
+      .from('ciclos').select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina.id).single()
+    if (updated) {
+      const r = updated as unknown as Rotina
+      setSelectedRotina(r)
+      setCiclosList(prev => prev.map(c => c.id === r.id ? r : c))
+      setNumSemanas(n)
+    }
+    setAdjustWeeksOpen(false)
+    setAdjustingWeeks(false)
   }
 
   async function moverSessao(sessaoId: string, direcao: 'up' | 'down') {
@@ -1613,11 +1656,40 @@ ${s.sessao_itens.map((item, i) => `
                         <p className="text-xs text-outline mt-1">
                           {new Date(selectedRotina.data_inicio + 'T00:00').toLocaleDateString('pt-BR')} → {new Date(selectedRotina.data_fim + 'T00:00').toLocaleDateString('pt-BR')}
                           {' · '}{calcDuracao(selectedRotina.data_inicio, selectedRotina.data_fim)}
-                          {' · '}<span className="font-semibold text-primary">{numSemanas} semanas</span>
                         </p>
                       )}
                       {selectedRotina.orientacoes && (
                         <p className="text-xs text-outline mt-1 italic">&quot;{selectedRotina.orientacoes}&quot;</p>
+                      )}
+                      {selectedRotina.tipo !== 'aerobico' && (
+                        <div className="flex items-center gap-2 mt-2 flex-wrap">
+                          {adjustWeeksOpen ? (
+                            <>
+                              <span className="text-xs text-outline font-semibold">Semanas:</span>
+                              <div className="flex gap-1 flex-wrap">
+                                {Array.from({ length: 16 }, (_, i) => i + 1).map(n => (
+                                  <button
+                                    key={n}
+                                    onClick={() => applyAdjustWeeks(n)}
+                                    disabled={adjustingWeeks}
+                                    className={`w-7 h-7 rounded text-xs font-bold transition-colors disabled:opacity-40 ${numSemanas === n ? 'bg-primary text-white' : 'bg-gray-100 text-secondary hover:bg-gray-200'}`}
+                                  >
+                                    {adjustingWeeks ? '·' : n}
+                                  </button>
+                                ))}
+                              </div>
+                              <button onClick={() => setAdjustWeeksOpen(false)} className="text-xs text-outline hover:text-secondary ml-1">Cancelar</button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => setAdjustWeeksOpen(true)}
+                              className="text-xs text-outline hover:text-primary flex items-center gap-1 transition-colors"
+                            >
+                              <span className="font-semibold text-primary">{numSemanas} semanas</span>
+                              <span className="underline">· ajustar</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                     </div>
                     <button
