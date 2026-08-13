@@ -10,22 +10,28 @@ export default function NovaSenhaPage() {
   const [confirm, setConfirm] = useState('')
   const [show, setShow] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [sessionReady, setSessionReady] = useState(false)
+  const [sessionReady, setSessionReady] = useState<boolean | null>(null)
   const [error, setError] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
-  // Aguarda a sessão ser estabelecida a partir do link de convite/reset
-  // O supabase-js detecta tokens no hash automaticamente, mas é assíncrono
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) {
-        setSessionReady(true)
-      }
-    })
+    // Hash flow (invite/reset link): URL contains #access_token=...
+    // In this case, supabase-js will process the hash and fire SIGNED_IN or PASSWORD_RECOVERY.
+    // We must NOT trust INITIAL_SESSION here because it may carry a stale session from
+    // a previously logged-in user (e.g., admin clicking the invite link to test it),
+    // which would cause updateUser to change the wrong user's password.
+    //
+    // PKCE flow (via /auth/callback): server already set cookies before redirect here,
+    // no hash tokens in URL — INITIAL_SESSION fires with the correct new session.
+    const isHashFlow = window.location.hash.includes('access_token')
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) setSessionReady(true)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
+        setSessionReady(!!session)
+      } else if (event === 'INITIAL_SESSION' && !isHashFlow) {
+        setSessionReady(!!session)
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -42,9 +48,11 @@ export default function NovaSenhaPage() {
     const { error } = await supabase.auth.updateUser({ password })
     setLoading(false)
 
-    if (error) { setError('Não foi possível salvar a senha. O link pode ter expirado — solicite um novo ao seu treinador.'); return }
+    if (error) {
+      setError('Não foi possível salvar a senha. O link pode ter expirado — solicite um novo ao seu treinador.')
+      return
+    }
 
-    // Sessão já está ativa — redireciona direto sem precisar fazer login novamente
     router.push('/')
   }
 
@@ -62,14 +70,21 @@ export default function NovaSenhaPage() {
           <h1 className="text-xl font-extrabold text-secondary mb-1 text-center">Nova senha</h1>
           <p className="text-sm text-outline text-center mb-8">Escolha uma senha segura para sua conta.</p>
 
-          {!sessionReady && (
+          {sessionReady === null && (
             <div className="flex flex-col items-center gap-3 py-6 text-outline">
               <Loader2 size={24} className="animate-spin" />
               <p className="text-sm">Verificando seu link de acesso...</p>
             </div>
           )}
 
-          {sessionReady && (
+          {sessionReady === false && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-5 text-center">
+              <p className="text-sm font-medium text-red-700">Link inválido ou expirado.</p>
+              <p className="text-sm text-red-600 mt-1">Solicite um novo link ao seu treinador.</p>
+            </div>
+          )}
+
+          {sessionReady === true && (
             <form onSubmit={handleSubmit} className="space-y-5">
               <div>
                 <label className="label">Nova senha</label>
