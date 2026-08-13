@@ -16,33 +16,52 @@ export default function NovaSenhaPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // detectSessionInUrl in the supabase singleton runs during initialization (before
-    // onAuthStateChange is subscribed). When hash tokens are present, the session is
-    // established and the singleton fires SIGNED_IN internally. By the time our
-    // onAuthStateChange subscription activates, the replay event is INITIAL_SESSION
-    // (not SIGNED_IN), carrying the already-correct invite/recovery session.
-    //
-    // So we accept INITIAL_SESSION with a valid session in all cases — by then the
-    // hash tokens have already replaced any previous session in the singleton.
-    // We only skip INITIAL_SESSION when there is no session AND no hash in the URL
-    // (direct navigation or expired link → show error).
+    const url = new URL(window.location.href)
+    const code = url.searchParams.get('code')
     const hasHashTokens = window.location.hash.includes('access_token')
 
+    if (code) {
+      // Supabase OTP/PKCE code in query string — exchange client-side.
+      // Doing this server-side (via /auth/callback) has a race condition:
+      // applyServerStorage fires asynchronously after exchangeCodeForSession returns,
+      // so cookies are never included in the redirect response.
+      supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+        if (!error && data.session) {
+          setSessionReady(true)
+          // Remove code from URL so a page refresh doesn't try to re-exchange it
+          url.searchParams.delete('code')
+          window.history.replaceState({}, '', url.toString())
+        } else {
+          // Code expired/invalid — check if a valid session already exists
+          // (e.g. user refreshed the page after a successful exchange)
+          supabase.auth.getSession().then(({ data: sd }) => {
+            setSessionReady(!!sd.session)
+          })
+        }
+      })
+      return
+    }
+
+    // Hash-based implicit flow (#access_token=...) or PKCE cookies already set.
+    // detectSessionInUrl in the browser client handles hash tokens automatically.
+    // INITIAL_SESSION carries the session when tokens were processed before
+    // onAuthStateChange was subscribed (common race with React's hydration).
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
         setSessionReady(!!session)
       } else if (event === 'INITIAL_SESSION') {
         if (session) {
+          // Session already established (tokens processed before subscription fired)
           setSessionReady(true)
         } else if (!hasHashTokens) {
-          // No session and no hash tokens → direct access or expired link
+          // No session, no tokens in URL → direct navigation or expired link
           setSessionReady(false)
         }
-        // hasHashTokens + no session: processing is still async, wait for SIGNED_IN
+        // hasHashTokens + no session: detectSessionInUrl is still async, wait for SIGNED_IN
       }
     })
 
-    // Safety valve: if hash processing takes too long or fails silently, show error
+    // Safety: if token processing stalls (network error, expired link), show error
     const timeout = setTimeout(() => {
       setSessionReady(prev => prev === null ? false : prev)
     }, 8000)

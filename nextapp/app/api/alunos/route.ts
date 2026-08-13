@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   // inviteUserByEmail cria o usuário E envia o email de boas-vindas em uma chamada só
   const { data: authData, error: authError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=/auth/nova-senha`,
+    redirectTo: `${origin}/auth/nova-senha`,
     data: { nome },
   })
 
