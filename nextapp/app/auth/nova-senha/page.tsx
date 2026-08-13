@@ -21,24 +21,37 @@ export default function NovaSenhaPage() {
     const hasHashTokens = window.location.hash.includes('access_token')
 
     if (code) {
-      // Supabase OTP/PKCE code in query string — exchange client-side.
-      // Doing this server-side (via /auth/callback) has a race condition:
-      // applyServerStorage fires asynchronously after exchangeCodeForSession returns,
-      // so cookies are never included in the redirect response.
-      supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
-        if (!error && data.session) {
-          setSessionReady(true)
-          // Remove code from URL so a page refresh doesn't try to re-exchange it
-          url.searchParams.delete('code')
-          window.history.replaceState({}, '', url.toString())
-        } else {
-          // Code expired/invalid — check if a valid session already exists
-          // (e.g. user refreshed the page after a successful exchange)
-          supabase.auth.getSession().then(({ data: sd }) => {
-            setSessionReady(!!sd.session)
-          })
-        }
-      })
+      // inviteUserByEmail is server-initiated: no browser client ever generated a
+      // code_verifier, so supabase-js throws AuthPKCECodeVerifierMissingError before
+      // reaching the API. Bypass by calling the token endpoint directly — GoTrue
+      // accepts server-originated invite/recovery codes without a verifier because
+      // no code_challenge was stored for these flows.
+      ;(async () => {
+        try {
+          const res = await fetch(
+            `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=pkce`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+              },
+              body: JSON.stringify({ auth_code: code }),
+            }
+          )
+          if (res.ok) {
+            const { access_token, refresh_token } = await res.json()
+            if (access_token && refresh_token) {
+              await supabase.auth.setSession({ access_token, refresh_token })
+              setSessionReady(true)
+              url.searchParams.delete('code')
+              window.history.replaceState({}, '', url.toString())
+              return
+            }
+          }
+        } catch {}
+        setSessionReady(false)
+      })()
       return
     }
 

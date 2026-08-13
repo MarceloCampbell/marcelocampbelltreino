@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   // ── Convite ──────────────────────────────────────────────────────────────────
   if (tipo === 'convite') {
     const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${origin}/auth/callback`,
+      redirectTo: `${origin}/auth/nova-senha`,
     })
 
     if (inviteError) {
