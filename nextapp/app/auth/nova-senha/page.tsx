@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
@@ -10,9 +10,26 @@ export default function NovaSenhaPage() {
   const [confirm, setConfirm] = useState('')
   const [show, setShow] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [sessionReady, setSessionReady] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
   const supabase = createClient()
+
+  // Aguarda a sessão ser estabelecida a partir do link de convite/reset
+  // O supabase-js detecta tokens no hash automaticamente, mas é assíncrono
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) {
+        setSessionReady(true)
+      }
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) setSessionReady(true)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -25,7 +42,10 @@ export default function NovaSenhaPage() {
     const { error } = await supabase.auth.updateUser({ password })
     setLoading(false)
 
-    if (error) { setError(error.message); return }
+    if (error) { setError('Não foi possível salvar a senha. O link pode ter expirado — solicite um novo ao seu treinador.'); return }
+
+    // Faz logout para forçar novo login com as credenciais salvas
+    await supabase.auth.signOut()
     router.push('/auth/login?reset=ok')
   }
 
@@ -43,42 +63,51 @@ export default function NovaSenhaPage() {
           <h1 className="text-xl font-extrabold text-secondary mb-1 text-center">Nova senha</h1>
           <p className="text-sm text-outline text-center mb-8">Escolha uma senha segura para sua conta.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="label">Nova senha</label>
-              <div className="relative">
+          {!sessionReady && (
+            <div className="flex flex-col items-center gap-3 py-6 text-outline">
+              <Loader2 size={24} className="animate-spin" />
+              <p className="text-sm">Verificando seu link de acesso...</p>
+            </div>
+          )}
+
+          {sessionReady && (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="label">Nova senha</label>
+                <div className="relative">
+                  <input
+                    type={show ? 'text' : 'password'}
+                    className="input pr-12"
+                    placeholder="Mínimo 6 caracteres"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                  />
+                  <button type="button" onClick={() => setShow(!show)} className="absolute right-4 top-1/2 -translate-y-1/2 text-outline">
+                    {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="label">Confirmar senha</label>
                 <input
                   type={show ? 'text' : 'password'}
-                  className="input pr-12"
-                  placeholder="Mínimo 6 caracteres"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  className="input"
+                  placeholder="Repita a senha"
+                  value={confirm}
+                  onChange={e => setConfirm(e.target.value)}
                   required
                 />
-                <button type="button" onClick={() => setShow(!show)} className="absolute right-4 top-1/2 -translate-y-1/2 text-outline">
-                  {show ? <EyeOff size={18} /> : <Eye size={18} />}
-                </button>
               </div>
-            </div>
-            <div>
-              <label className="label">Confirmar senha</label>
-              <input
-                type={show ? 'text' : 'password'}
-                className="input"
-                placeholder="Repita a senha"
-                value={confirm}
-                onChange={e => setConfirm(e.target.value)}
-                required
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-3 rounded-lg">{error}</p>
-            )}
-            <button type="submit" disabled={loading} className="btn-primary w-full">
-              {loading ? <Loader2 size={18} className="animate-spin" /> : null}
-              {loading ? 'Salvando...' : 'Salvar nova senha'}
-            </button>
-          </form>
+              {error && (
+                <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-3 rounded-lg">{error}</p>
+              )}
+              <button type="submit" disabled={loading} className="btn-primary w-full">
+                {loading ? <Loader2 size={18} className="animate-spin" /> : null}
+                {loading ? 'Salvando...' : 'Salvar nova senha'}
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>
