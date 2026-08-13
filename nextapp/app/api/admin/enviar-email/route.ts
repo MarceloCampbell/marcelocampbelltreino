@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
 
       // Aluno já tem conta — envia reset de senha para que possa acessar
       const { error: resetError } = await admin.auth.resetPasswordForEmail(email, {
-        redirectTo: `${origin}/auth/nova-senha`,
+        redirectTo: `${origin}/auth/callback?next=/auth/nova-senha`,
       })
       if (resetError)
         return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o email de boas-vindas.' }, { status: 400 })
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
   // ── Redefinir senha ───────────────────────────────────────────────────────────
   if (tipo === 'redefinir_senha') {
     const { error } = await admin.auth.resetPasswordForEmail(email, {
-      redirectTo: `${origin}/auth/nova-senha`,
+      redirectTo: `${origin}/auth/callback?next=/auth/nova-senha`,
     })
 
     if (error)
