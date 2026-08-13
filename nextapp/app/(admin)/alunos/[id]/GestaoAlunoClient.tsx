@@ -7,7 +7,7 @@ import {
   TrendingUp, Calendar, Scale, AlertCircle, PenLine, Plus, KeyRound, X,
   ChevronLeft, ChevronDown, ChevronRight, ChevronUp, Trash2, Archive, RotateCcw,
   Dumbbell, Wind, UserX, UserCheck, Edit2, BarChart3, ArrowUp, ArrowDown, Clock, Download, Upload,
-  Send,
+  Send, GripVertical,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
@@ -353,6 +353,11 @@ export function GestaoAlunoClient({
   const [todosAlunos, setTodosAlunos] = useState<{ id: string; nome: string }[]>([])
   const [bulkInterval, setBulkInterval] = useState('')
   const [applyingBulk, setApplyingBulk] = useState(false)
+
+  // ── Exercise drag-reorder
+  const [dragItem, setDragItem] = useState<{ id: string; sessaoId: string } | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [reorderingItems, setReorderingItems] = useState(false)
 
   // ── Edit dados pessoais
   const [editingDados, setEditingDados] = useState(false)
@@ -1156,50 +1161,60 @@ export function GestaoAlunoClient({
     setTodosAlunos((data ?? []).map(a => ({ id: a.id, nome: (a.usuario as any)?.nome ?? 'Aluno' })))
   }
 
+  async function reorderExercicios(sessaoId: string, fromId: string, toId: string) {
+    if (fromId === toId || reorderingItems || !selectedRotina) return
+    setReorderingItems(true)
+    try {
+      const sessao = selectedRotina.sessoes_treino.find(s => s.id === sessaoId)
+      if (!sessao) return
+      const sorted = [...sessao.sessao_itens].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
+      const fromItem = sorted.find(i => i.id === fromId)
+      if (!fromItem) return
+
+      // Items that travel together (biset/superset group)
+      const travelGroup = fromItem.biset_grupo
+        ? sorted.filter(i => i.biset_grupo === fromItem.biset_grupo)
+        : [fromItem]
+      const travelIds = new Set(travelGroup.map(i => i.id))
+      const rest = sorted.filter(i => !travelIds.has(i.id))
+      const insertIdx = rest.findIndex(i => i.id === toId)
+      const insertAt = insertIdx === -1 ? rest.length : insertIdx
+      rest.splice(insertAt, 0, ...travelGroup)
+
+      await Promise.all(rest.map((item, idx) =>
+        supabase.from('sessao_itens').update({ ordem: idx + 1 }).eq('id', item.id)
+      ))
+
+      const { data: updated } = await supabase
+        .from('ciclos')
+        .select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+        .eq('id', selectedRotina.id)
+        .single()
+      if (updated) {
+        const r = updated as unknown as Rotina
+        setSelectedRotina(r)
+        setCiclosList(prev => prev.map(c => c.id === r.id ? r : c))
+      }
+    } finally {
+      setReorderingItems(false)
+      setDragItem(null)
+      setDragOverId(null)
+    }
+  }
+
   async function duplicarParaAluno() {
     if (!selectedRotina || !duplicateAlunoId || duplicateLoading) return
     setDuplicateLoading(true)
     try {
-      const { data: novo } = await supabase.from('ciclos').insert({
-        aluno_id: duplicateAlunoId,
-        nome: selectedRotina.nome,
-        status: 'rascunho',
-        tipo: selectedRotina.tipo,
-        objetivo: selectedRotina.objetivo,
-        orientacoes: selectedRotina.orientacoes,
-        visivel_antes_de_iniciar: selectedRotina.visivel_antes_de_iniciar,
-        ocultar_ao_vencer: selectedRotina.ocultar_ao_vencer,
-      }).select('id').single()
-      if (!novo) return
-
-      for (const sessao of selectedRotina.sessoes_treino) {
-        const { data: novaSessao } = await supabase.from('sessoes_treino').insert({
-          ciclo_id: novo.id,
-          nome: sessao.nome,
-          tipo: sessao.tipo,
-          dia_letra: sessao.dia_letra,
-          dia_semana_numero: sessao.dia_semana_numero,
-          orientacoes_aluno: sessao.orientacoes_aluno,
-          observacoes: sessao.observacoes,
-          tipo_aerobico: sessao.tipo_aerobico,
-          status: 'pendente',
-          ordem: sessao.ordem,
-        }).select('id').single()
-        if (!novaSessao || !sessao.sessao_itens.length) continue
-        await supabase.from('sessao_itens').insert(
-          sessao.sessao_itens.map(item => ({
-            sessao_id: novaSessao.id,
-            exercicio_id: item.exercicio?.id ?? null,
-            ordem: item.ordem,
-            series: item.series,
-            repeticoes: item.repeticoes,
-            carga_kg: item.carga_kg,
-            descanso_seg: item.descanso_seg,
-            observacoes: item.observacoes,
-            periodizacao_semanal: item.periodizacao_semanal,
-            biset_grupo: item.biset_grupo,
-          }))
-        )
+      const res = await fetch('/api/admin/duplicar-rotina', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cicloId: selectedRotina.id, targetAlunoId: duplicateAlunoId }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.sucesso) {
+        alert('Erro ao duplicar rotina: ' + (data.erro ?? 'Tente novamente.'))
+        return
       }
       setShowDuplicate(false)
       setDuplicateAlunoId('')
@@ -2011,14 +2026,33 @@ ${s.sessao_itens.map((item, i) => `
                               </div>
                             </div>
                           )}
-                          {s.sessao_itens.map((item, iIdx) => {
+                          {[...s.sessao_itens].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((item, iIdx) => {
                             const pSemanas: SemanaItem[] = item.periodizacao_semanal ?? []
                             const isEditingThis = editingItemId === item.id
                             const isSelected = selectedItemIds.has(item.id)
                             const inBiset = !!item.biset_grupo
+                            const isDragging = dragItem?.id === item.id
+                            const isDragOver = dragOverId === item.id
                             return (
-                              <div key={item.id} className={`text-sm ${inBiset ? 'border-l-2 border-primary pl-2 rounded-r' : ''}`}>
+                              <div
+                                key={item.id}
+                                draggable
+                                onDragStart={() => setDragItem({ id: item.id, sessaoId: s.id })}
+                                onDragOver={e => { e.preventDefault(); setDragOverId(item.id) }}
+                                onDrop={e => {
+                                  e.preventDefault()
+                                  if (dragItem?.sessaoId === s.id && dragItem.id !== item.id) {
+                                    reorderExercicios(s.id, dragItem.id, item.id)
+                                  } else {
+                                    setDragItem(null)
+                                    setDragOverId(null)
+                                  }
+                                }}
+                                onDragEnd={() => { setDragItem(null); setDragOverId(null) }}
+                                className={`text-sm transition-opacity ${inBiset ? 'border-l-2 border-primary pl-2 rounded-r' : ''} ${isDragging ? 'opacity-40' : ''} ${isDragOver ? 'border-t-2 border-primary pt-0.5' : ''}`}
+                              >
                                 <div className="flex items-center gap-2 mb-1">
+                                  <GripVertical size={14} className="text-outline/50 cursor-grab active:cursor-grabbing flex-shrink-0" />
                                   <input
                                     type="checkbox"
                                     className="w-3.5 h-3.5 flex-shrink-0"
