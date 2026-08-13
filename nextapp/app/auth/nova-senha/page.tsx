@@ -16,25 +16,41 @@ export default function NovaSenhaPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    // Hash flow (invite/reset link): URL contains #access_token=...
-    // In this case, supabase-js will process the hash and fire SIGNED_IN or PASSWORD_RECOVERY.
-    // We must NOT trust INITIAL_SESSION here because it may carry a stale session from
-    // a previously logged-in user (e.g., admin clicking the invite link to test it),
-    // which would cause updateUser to change the wrong user's password.
+    // detectSessionInUrl in the supabase singleton runs during initialization (before
+    // onAuthStateChange is subscribed). When hash tokens are present, the session is
+    // established and the singleton fires SIGNED_IN internally. By the time our
+    // onAuthStateChange subscription activates, the replay event is INITIAL_SESSION
+    // (not SIGNED_IN), carrying the already-correct invite/recovery session.
     //
-    // PKCE flow (via /auth/callback): server already set cookies before redirect here,
-    // no hash tokens in URL — INITIAL_SESSION fires with the correct new session.
-    const isHashFlow = window.location.hash.includes('access_token')
+    // So we accept INITIAL_SESSION with a valid session in all cases — by then the
+    // hash tokens have already replaced any previous session in the singleton.
+    // We only skip INITIAL_SESSION when there is no session AND no hash in the URL
+    // (direct navigation or expired link → show error).
+    const hasHashTokens = window.location.hash.includes('access_token')
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
         setSessionReady(!!session)
-      } else if (event === 'INITIAL_SESSION' && !isHashFlow) {
-        setSessionReady(!!session)
+      } else if (event === 'INITIAL_SESSION') {
+        if (session) {
+          setSessionReady(true)
+        } else if (!hasHashTokens) {
+          // No session and no hash tokens → direct access or expired link
+          setSessionReady(false)
+        }
+        // hasHashTokens + no session: processing is still async, wait for SIGNED_IN
       }
     })
 
-    return () => subscription.unsubscribe()
+    // Safety valve: if hash processing takes too long or fails silently, show error
+    const timeout = setTimeout(() => {
+      setSessionReady(prev => prev === null ? false : prev)
+    }, 8000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
