@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   const { error } = await supabase.auth.signInWithPassword({ email, password })
 
   if (error) {
-    return NextResponse.redirect(`${origin}/auth/login?error=credenciais`)
+    return NextResponse.redirect(`${origin}/auth/login?error=credenciais`, { status: 303 })
   }
 
   const { data: { user } } = await supabase.auth.getUser()
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   const response = NextResponse.redirect(`${origin}${destino}`, { status: 303 })
 
   cookiesToSet.forEach(({ name, value, options }) => {
-    response.cookies.set(name, value, { ...options, secure: false, sameSite: 'lax', path: '/' })
+    response.cookies.set(name, value, { ...options, sameSite: 'lax', path: '/' })
   })
 
   return response
