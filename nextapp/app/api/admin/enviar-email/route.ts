@@ -3,10 +3,14 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
+function gerarSenhaTemp(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  return 'MC-' + Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies()
 
-  // Authenticated session client (anon key + cookies)
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -20,85 +24,51 @@ export async function POST(request: NextRequest) {
     }
   )
 
-  // 1. Auth check
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ sucesso: false, erro: 'Não autenticado' }, { status: 401 })
 
-  // 2. Admin role check
   const { data: usuario } = await supabase
     .from('usuarios').select('papel').eq('auth_id', user.id).single()
   if (usuario?.papel !== 'admin')
     return NextResponse.json({ sucesso: false, erro: 'Não autorizado' }, { status: 403 })
 
-  // 3. Parse body
   const body = await request.json().catch(() => null)
   const { alunoId, tipo } = body ?? {}
   if (!alunoId || !['convite', 'redefinir_senha'].includes(tipo))
     return NextResponse.json({ sucesso: false, erro: 'Parâmetros inválidos' }, { status: 400 })
 
-  // 4. Fetch email from DB — never trust frontend
+  // Busca email e auth_id do aluno
   const { data: aluno } = await supabase
     .from('alunos')
-    .select('usuario:usuarios(email)')
+    .select('usuario:usuarios(email, auth_id)')
     .eq('id', alunoId)
     .single()
   const email = (aluno?.usuario as any)?.email as string | undefined
-  if (!email)
-    return NextResponse.json({ sucesso: false, erro: 'Email do aluno não encontrado' }, { status: 400 })
+  const authId = (aluno?.usuario as any)?.auth_id as string | undefined
+  if (!email || !authId)
+    return NextResponse.json({ sucesso: false, erro: 'Dados do aluno não encontrados' }, { status: 400 })
 
-  // 5. Admin Supabase client (service role — never in frontend)
   const admin = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  const origin = process.env.NEXT_PUBLIC_APP_URL
-    ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+  // Gera nova senha temporária e atualiza o usuário
+  const senhaTemporaria = gerarSenhaTemp()
 
-  // ── Convite ──────────────────────────────────────────────────────────────────
-  if (tipo === 'convite') {
-    const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-      redirectTo: `${origin}/auth/nova-senha`,
-    })
+  const { error } = await admin.auth.admin.updateUserById(authId, {
+    password: senhaTemporaria,
+    user_metadata: { needs_password_change: true },
+  })
 
-    if (inviteError) {
-      const msg = inviteError.message?.toLowerCase() ?? ''
-      const jaExiste = msg.includes('already') || msg.includes('registered') || msg.includes('exists')
+  if (error)
+    return NextResponse.json({ sucesso: false, erro: 'Não foi possível gerar nova senha.' }, { status: 400 })
 
-      if (!jaExiste)
-        return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o convite.' }, { status: 400 })
+  const campo = tipo === 'convite' ? 'ultimo_convite_enviado_em' : 'ultima_redefinicao_enviada_em'
+  await supabase.from('alunos')
+    .update({ [campo]: new Date().toISOString() })
+    .eq('id', alunoId)
 
-      // Aluno já tem conta — envia reset de senha para que possa acessar
-      const { error: resetError } = await admin.auth.resetPasswordForEmail(email, {
-        redirectTo: `${origin}/auth/nova-senha`,
-      })
-      if (resetError)
-        return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o email de boas-vindas.' }, { status: 400 })
-    }
-
-    await supabase.from('alunos')
-      .update({ ultimo_convite_enviado_em: new Date().toISOString() })
-      .eq('id', alunoId)
-
-    return NextResponse.json({ sucesso: true, email })
-  }
-
-  // ── Redefinir senha ───────────────────────────────────────────────────────────
-  if (tipo === 'redefinir_senha') {
-    const { error } = await admin.auth.resetPasswordForEmail(email, {
-      redirectTo: `${origin}/auth/nova-senha`,
-    })
-
-    if (error)
-      return NextResponse.json({ sucesso: false, erro: 'Não foi possível enviar o email de redefinição.' }, { status: 400 })
-
-    await supabase.from('alunos')
-      .update({ ultima_redefinicao_enviada_em: new Date().toISOString() })
-      .eq('id', alunoId)
-
-    return NextResponse.json({ sucesso: true, email })
-  }
-
-  return NextResponse.json({ sucesso: false, erro: 'Tipo inválido' }, { status: 400 })
+  return NextResponse.json({ sucesso: true, email, senha_temporaria: senhaTemporaria })
 }

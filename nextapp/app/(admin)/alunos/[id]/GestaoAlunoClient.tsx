@@ -313,6 +313,8 @@ export function GestaoAlunoClient({
     redefinir_senha: aluno.ultima_redefinicao_enviada_em ?? undefined,
   })
   const [emailToast, setEmailToast] = useState<{ tipo: 'sucesso' | 'erro'; msg: string } | null>(null)
+  const [credencialTemp, setCredencialTemp] = useState<{ email: string; senha: string } | null>(null)
+  const [credCopied, setCredCopied] = useState(false)
 
   useEffect(() => {
     if (redefinirCooldown <= 0) return
@@ -999,12 +1001,12 @@ export function GestaoAlunoClient({
       if (json.sucesso) {
         setEmailLastSent({ redefinir_senha: new Date().toISOString() })
         setRedefinirCooldown(60)
-        setEmailToast({ tipo: 'sucesso', msg: `Email enviado para ${json.email}` })
+        setCredencialTemp({ email: json.email, senha: json.senha_temporaria })
       } else {
-        setEmailToast({ tipo: 'erro', msg: json.erro ?? 'Erro ao enviar email' })
+        setEmailToast({ tipo: 'erro', msg: json.erro ?? 'Erro ao gerar nova senha' })
       }
     } catch {
-      setEmailToast({ tipo: 'erro', msg: 'Erro de conexão ao enviar email' })
+      setEmailToast({ tipo: 'erro', msg: 'Erro de conexão' })
     } finally {
       setEmailLoading(null)
     }
@@ -2572,7 +2574,7 @@ ${s.sessao_itens.map((item, i) => `
                   <KeyRound size={14} /> Redefinir Senha
                 </button>
 
-                {/* ── Redefinir senha (email) ── */}
+                {/* ── Gerar nova senha temporária ── */}
                 <div>
                   <button
                     onClick={() => enviarEmailRedefinir()}
@@ -2585,8 +2587,8 @@ ${s.sessao_itens.map((item, i) => `
                       <Send size={14} />
                     )}
                     {redefinirCooldown > 0
-                      ? `Reenviar em 0:${String(redefinirCooldown).padStart(2, '0')}`
-                      : 'Redefinir senha (email)'}
+                      ? `Aguarde 0:${String(redefinirCooldown).padStart(2, '0')}`
+                      : 'Gerar nova senha'}
                   </button>
                   {emailLastSent.redefinir_senha && (
                     <p className="text-[10px] text-outline mt-1 text-center">
@@ -2603,6 +2605,38 @@ ${s.sessao_itens.map((item, i) => `
                       : 'bg-red-50 text-red-700 border border-red-200'
                   }`}>
                     {emailToast.tipo === 'sucesso' ? '✓' : '✕'} {emailToast.msg}
+                  </div>
+                )}
+
+                {/* ── Modal de credenciais temporárias ── */}
+                {credencialTemp && (
+                  <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                    <div className="bg-white rounded-2xl shadow-card p-6 w-full max-w-sm space-y-4">
+                      <h3 className="font-extrabold text-secondary text-base">Nova senha gerada</h3>
+                      <p className="text-xs text-outline">Compartilhe as credenciais com o aluno via WhatsApp.</p>
+                      <div className="bg-surface rounded-xl p-4 space-y-3">
+                        <div>
+                          <p className="text-[10px] font-semibold text-outline uppercase tracking-wider mb-0.5">Email</p>
+                          <p className="font-mono text-sm font-bold text-secondary">{credencialTemp.email}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-outline uppercase tracking-wider mb-0.5">Senha temporária</p>
+                          <p className="font-mono text-xl font-extrabold text-primary-dark tracking-widest">{credencialTemp.senha}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            const txt = `*MC Treino — Acesso*\nEmail: ${credencialTemp.email}\nSenha: ${credencialTemp.senha}`
+                            navigator.clipboard.writeText(txt).then(() => { setCredCopied(true); setTimeout(() => setCredCopied(false), 2000) })
+                          }}
+                          className="btn-primary flex-1 text-sm py-2"
+                        >
+                          {credCopied ? '✓ Copiado!' : 'Copiar'}
+                        </button>
+                        <button onClick={() => setCredencialTemp(null)} className="btn-secondary flex-1 text-sm py-2">Fechar</button>
+                      </div>
+                    </div>
                   </div>
                 )}
 

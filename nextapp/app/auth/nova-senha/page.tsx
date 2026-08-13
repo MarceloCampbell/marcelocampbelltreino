@@ -16,48 +16,9 @@ export default function NovaSenhaPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    const url = new URL(window.location.href)
-    const token_hash = url.searchParams.get('token_hash')
-    const type = url.searchParams.get('type')
-    const hasHashTokens = window.location.hash.includes('access_token')
-
-    if (token_hash && type) {
-      // token_hash flow: email template links directly to this page with the OTP hash.
-      // verifyOtp calls /auth/v1/verify — no PKCE code_verifier required.
-      supabase.auth.verifyOtp({ token_hash, type: type as any }).then(({ data, error }) => {
-        if (!error && data.session) {
-          setSessionReady(true)
-          url.searchParams.delete('token_hash')
-          url.searchParams.delete('type')
-          window.history.replaceState({}, '', url.toString())
-        } else {
-          setSessionReady(false)
-        }
-      })
-      return
-    }
-
-    // Fallback: hash-based implicit flow (#access_token=...) or existing session in cookies.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
-        setSessionReady(!!session)
-      } else if (event === 'INITIAL_SESSION') {
-        if (session) {
-          setSessionReady(true)
-        } else if (!hasHashTokens) {
-          setSessionReady(false)
-        }
-      }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSessionReady(!!session)
     })
-
-    const timeout = setTimeout(() => {
-      setSessionReady(prev => prev === null ? false : prev)
-    }, 8000)
-
-    return () => {
-      subscription.unsubscribe()
-      clearTimeout(timeout)
-    }
   }, [])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -68,11 +29,14 @@ export default function NovaSenhaPage() {
     setLoading(true)
     setError('')
 
-    const { error } = await supabase.auth.updateUser({ password })
+    const { error } = await supabase.auth.updateUser({
+      password,
+      data: { needs_password_change: false },
+    })
     setLoading(false)
 
     if (error) {
-      setError('Não foi possível salvar a senha. O link pode ter expirado — solicite um novo ao seu treinador.')
+      setError('Não foi possível salvar a senha. Tente novamente.')
       return
     }
 
@@ -90,20 +54,20 @@ export default function NovaSenhaPage() {
               <text x="36" y="46" textAnchor="middle" fontFamily="Poppins, sans-serif" fontWeight="800" fontSize="26" fill="#64A1EE">MC</text>
             </svg>
           </div>
-          <h1 className="text-xl font-extrabold text-secondary mb-1 text-center">Nova senha</h1>
+          <h1 className="text-xl font-extrabold text-secondary mb-1 text-center">Defina sua senha</h1>
           <p className="text-sm text-outline text-center mb-8">Escolha uma senha segura para sua conta.</p>
 
           {sessionReady === null && (
             <div className="flex flex-col items-center gap-3 py-6 text-outline">
               <Loader2 size={24} className="animate-spin" />
-              <p className="text-sm">Verificando seu link de acesso...</p>
+              <p className="text-sm">Verificando sessão...</p>
             </div>
           )}
 
           {sessionReady === false && (
             <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-5 text-center">
-              <p className="text-sm font-medium text-red-700">Link inválido ou expirado.</p>
-              <p className="text-sm text-red-600 mt-1">Solicite um novo link ao seu treinador.</p>
+              <p className="text-sm font-medium text-red-700">Você precisa fazer login primeiro.</p>
+              <a href="/auth/login" className="text-sm text-primary underline mt-2 inline-block">Ir para o login</a>
             </div>
           )}
 
@@ -141,7 +105,7 @@ export default function NovaSenhaPage() {
               )}
               <button type="submit" disabled={loading} className="btn-primary w-full">
                 {loading ? <Loader2 size={18} className="animate-spin" /> : null}
-                {loading ? 'Salvando...' : 'Salvar nova senha'}
+                {loading ? 'Salvando...' : 'Salvar senha'}
               </button>
             </form>
           )}

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { CheckCircle2, ChevronRight, Loader2, Shield, Clock, UserCog } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Loader2, Shield, Clock, Copy, MessageCircle, ArrowRight } from 'lucide-react'
 
 const STEPS = [
   { label: 'Dados', icon: '👤' },
@@ -23,6 +23,8 @@ export function NovoAlunoForm({ academias }: Props) {
   const [step, setStep] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [credenciais, setCredenciais] = useState<{ email: string; senha: string; alunoId: string } | null>(null)
+  const [copiado, setCopiado] = useState(false)
 
   const [form, setForm] = useState({
     // Step 0: Dados básicos
@@ -70,20 +72,26 @@ export function NovoAlunoForm({ academias }: Props) {
     }))
   }
 
+  function copiarCredenciais(email: string, senha: string) {
+    const texto = `*MC Treino — Acesso*\nEmail: ${email}\nSenha: ${senha}\nAcesse: ${window.location.origin}/auth/login`
+    navigator.clipboard.writeText(texto).then(() => {
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 2000)
+    })
+  }
+
   async function handleSubmit() {
     if (!form.nome || !form.email) { setError('Nome e e-mail são obrigatórios.'); return }
     setLoading(true)
     setError('')
 
     try {
-      const senha = form.senha || Math.random().toString(36).slice(-10) + 'A1!'
-
       const res = await fetch('/api/alunos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email:          form.email,
-          senha,
+          senha:          form.senha || null,
           nome:           form.nome,
           telefone:       form.telefone || null,
           data_nascimento: form.data_nascimento || null,
@@ -96,7 +104,6 @@ export function NovoAlunoForm({ academias }: Props) {
 
       const usuarioId = json.usuario.id
 
-      // Cria registro de aluno
       const { data: aluno, error: alunoError } = await supabase
         .from('alunos')
         .insert({
@@ -127,13 +134,13 @@ export function NovoAlunoForm({ academias }: Props) {
 
       if (alunoError) throw new Error(alunoError.message)
 
-      // Score inicial (trigger já pode ter criado — upsert para não duplicar)
       await supabase.from('scores').upsert(
         { aluno_id: aluno!.id, pontos_total: 0, xp: 0, nivel: 1, sequencia_atual: 0, sequencia_max: 0, aderencia_mes: 0 } as any,
         { onConflict: 'aluno_id' }
       )
 
-      router.push(`/alunos/${aluno!.id}`)
+      // Mostrar credenciais para o admin compartilhar com o aluno
+      setCredenciais({ email: form.email, senha: json.senha_temporaria, alunoId: aluno!.id })
     } catch (err: any) {
       setError(err.message ?? 'Erro ao cadastrar aluno')
     } finally {
@@ -145,6 +152,45 @@ export function NovoAlunoForm({ academias }: Props) {
     'Disciplinado', 'Precisa de incentivo', 'Automotivado', 'Ansioso',
     'Perfeccionista', 'Consistente', 'Irregular', 'Competitivo',
   ]
+
+  if (credenciais) {
+    return (
+      <div className="card max-w-md mx-auto text-center space-y-6">
+        <div className="text-4xl">✅</div>
+        <div>
+          <h2 className="text-xl font-extrabold text-secondary">Aluno cadastrado!</h2>
+          <p className="text-sm text-outline mt-1">Compartilhe as credenciais de acesso abaixo.</p>
+        </div>
+        <div className="bg-surface rounded-xl p-5 text-left space-y-3">
+          <div>
+            <p className="text-xs font-semibold text-outline uppercase tracking-wider mb-1">Email</p>
+            <p className="font-mono text-sm font-bold text-secondary">{credenciais.email}</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-outline uppercase tracking-wider mb-1">Senha temporária</p>
+            <p className="font-mono text-lg font-extrabold text-primary-dark tracking-widest">{credenciais.senha}</p>
+          </div>
+          <p className="text-xs text-outline">O aluno pode trocar a senha após o primeiro login.</p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => copiarCredenciais(credenciais.email, credenciais.senha)}
+            className="btn-primary w-full"
+          >
+            <Copy size={16} />
+            {copiado ? 'Copiado!' : 'Copiar para WhatsApp'}
+          </button>
+          <button
+            onClick={() => router.push(`/alunos/${credenciais.alunoId}`)}
+            className="btn-secondary w-full"
+          >
+            <ArrowRight size={16} />
+            Ver perfil do aluno
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div>

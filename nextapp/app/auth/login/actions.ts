@@ -17,6 +17,11 @@ export async function loginAction(formData: FormData) {
   }
 
   const { data: { user } } = await supabase.auth.getUser()
+
+  if (user?.user_metadata?.needs_password_change) {
+    redirect('/auth/nova-senha')
+  }
+
   const { data: usuario } = await supabase
     .from('usuarios')
     .select('papel')
