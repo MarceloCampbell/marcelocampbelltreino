@@ -17,64 +17,39 @@ export default function NovaSenhaPage() {
 
   useEffect(() => {
     const url = new URL(window.location.href)
-    const code = url.searchParams.get('code')
+    const token_hash = url.searchParams.get('token_hash')
+    const type = url.searchParams.get('type')
     const hasHashTokens = window.location.hash.includes('access_token')
 
-    if (code) {
-      // inviteUserByEmail is server-initiated: no browser client ever generated a
-      // code_verifier, so supabase-js throws AuthPKCECodeVerifierMissingError before
-      // reaching the API. Bypass by calling the token endpoint directly — GoTrue
-      // accepts server-originated invite/recovery codes without a verifier because
-      // no code_challenge was stored for these flows.
-      ;(async () => {
-        try {
-          const res = await fetch(
-            `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=pkce`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-              },
-              body: JSON.stringify({ auth_code: code }),
-            }
-          )
-          if (res.ok) {
-            const { access_token, refresh_token } = await res.json()
-            if (access_token && refresh_token) {
-              await supabase.auth.setSession({ access_token, refresh_token })
-              setSessionReady(true)
-              url.searchParams.delete('code')
-              window.history.replaceState({}, '', url.toString())
-              return
-            }
-          }
-        } catch {}
-        setSessionReady(false)
-      })()
+    if (token_hash && type) {
+      // token_hash flow: email template links directly to this page with the OTP hash.
+      // verifyOtp calls /auth/v1/verify — no PKCE code_verifier required.
+      supabase.auth.verifyOtp({ token_hash, type: type as any }).then(({ data, error }) => {
+        if (!error && data.session) {
+          setSessionReady(true)
+          url.searchParams.delete('token_hash')
+          url.searchParams.delete('type')
+          window.history.replaceState({}, '', url.toString())
+        } else {
+          setSessionReady(false)
+        }
+      })
       return
     }
 
-    // Hash-based implicit flow (#access_token=...) or PKCE cookies already set.
-    // detectSessionInUrl in the browser client handles hash tokens automatically.
-    // INITIAL_SESSION carries the session when tokens were processed before
-    // onAuthStateChange was subscribed (common race with React's hydration).
+    // Fallback: hash-based implicit flow (#access_token=...) or existing session in cookies.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' || event === 'PASSWORD_RECOVERY') {
         setSessionReady(!!session)
       } else if (event === 'INITIAL_SESSION') {
         if (session) {
-          // Session already established (tokens processed before subscription fired)
           setSessionReady(true)
         } else if (!hasHashTokens) {
-          // No session, no tokens in URL → direct navigation or expired link
           setSessionReady(false)
         }
-        // hasHashTokens + no session: detectSessionInUrl is still async, wait for SIGNED_IN
       }
     })
 
-    // Safety: if token processing stalls (network error, expired link), show error
     const timeout = setTimeout(() => {
       setSessionReady(prev => prev === null ? false : prev)
     }, 8000)
