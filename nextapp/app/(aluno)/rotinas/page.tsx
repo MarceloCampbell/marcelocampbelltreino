@@ -19,6 +19,7 @@ export default async function RotinasPage() {
     .from('ciclos')
     .select('id, nome, numero, data_inicio, data_fim, status, tema')
     .eq('aluno_id', aluno.id)
+    .in('status', ['ativo', 'planejado', 'concluido'])
     .order('data_inicio', { ascending: false })
 
   function formatDate(d: string | null) {

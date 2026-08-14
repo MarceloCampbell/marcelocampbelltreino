@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  CheckCircle2, ChevronDown, ChevronUp, Loader2, X, RefreshCw,
+  CheckCircle2, ChevronDown, ChevronUp, ChevronLeft, Loader2, X, RefreshCw,
   Dumbbell, Clock, Play, Maximize2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -147,6 +147,8 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   const [restTimer, setRestTimer] = useState<{ itemId: string; secs: number } | null>(null)
   const [restTimerFullscreen, setRestTimerFullscreen] = useState(false)
   const [restTimerPaused, setRestTimerPaused] = useState(false)
+  const [completedItemIds, setCompletedItemIds] = useState<Set<string>>(new Set())
+  const [showExitModal, setShowExitModal] = useState(false)
   const isRealizado = sessao.status === 'realizado'
   const itens = sessao.sessao_itens?.sort((a, b) => a.ordem - b.ordem) ?? []
 
@@ -167,6 +169,7 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
   }
 
   function startRestTimer(item: SessaoItem) {
+    setCompletedItemIds(prev => new Set([...prev, item.id]))
     setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })
     setRestTimerFullscreen(true)
     setRestTimerPaused(false)
@@ -178,7 +181,84 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
     setRestTimerPaused(false)
   }
 
+  const pct = itens.length > 0 ? Math.round((completedItemIds.size / itens.length) * 100) : 0
+
   return (
+    <>
+      {/* Sticky training header */}
+      {iniciado && (
+        <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b border-outline-variant shadow-md">
+          <div className="flex items-center gap-3 px-4 pt-3 pb-2 max-w-2xl mx-auto">
+            <button
+              onClick={() => setShowExitModal(true)}
+              className="p-1.5 -ml-1 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0"
+            >
+              <ChevronLeft size={22} className="text-secondary" />
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-secondary text-sm truncate">{sessao.nome}</p>
+              <p className="text-[11px] text-outline">{sessao.nome} · {itens.length} exercício{itens.length !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="text-right">
+                <p className="text-base font-bold text-green-700 tabular-nums leading-none">{fmt(sessionSecs)}</p>
+                <p className="text-[10px] text-green-600">em andamento</p>
+              </div>
+              <button
+                onClick={() => setIniciado(false)}
+                className="text-[11px] font-semibold text-green-600 hover:text-green-800 bg-green-50 px-2.5 py-1.5 rounded-lg"
+              >
+                Pausar
+              </button>
+            </div>
+          </div>
+          <div className="px-4 pb-3 max-w-2xl mx-auto">
+            <div className="flex items-center justify-between text-[10px] text-outline mb-1">
+              <span>{completedItemIds.size} de {itens.length} concluídos</span>
+              <span className="font-semibold">{pct}%</span>
+            </div>
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-all duration-500 rounded-full"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Exit confirmation modal */}
+      {showExitModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-5 border-b border-outline-variant text-center">
+              <p className="font-bold text-secondary">Sair do treino?</p>
+              <p className="text-sm text-outline mt-1">O cronômetro está em andamento.</p>
+            </div>
+            <div className="p-3 space-y-2">
+              <button
+                onClick={() => { setIniciado(false); setShowExitModal(false); setIsOpen(false) }}
+                className="w-full py-3 px-4 rounded-xl bg-secondary text-white font-semibold text-sm"
+              >
+                Sair e pausar treino
+              </button>
+              <button
+                onClick={() => { setShowExitModal(false); setIsOpen(false) }}
+                className="w-full py-3 px-4 rounded-xl bg-gray-100 text-secondary font-semibold text-sm"
+              >
+                Sair sem pausar
+              </button>
+              <button
+                onClick={() => setShowExitModal(false)}
+                className="w-full py-3 px-4 rounded-xl text-outline text-sm"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     <div className={`bg-white rounded-2xl overflow-hidden ${highlight ? 'ring-2 ring-primary shadow-lg' : 'shadow-card'}`}>
 
       {/* Fullscreen rest timer overlay */}
@@ -241,6 +321,8 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
 
       {isOpen && (
         <div className="border-t border-outline-variant">
+          {/* Spacer when sticky header is active */}
+          {iniciado && <div className="h-24" />}
           {(sessao.observacoes || sessao.orientacoes_aluno) && (
             <div className="px-5 py-3 bg-blue-50 text-sm text-primary">
               📋 {sessao.orientacoes_aluno || sessao.observacoes}
@@ -458,6 +540,7 @@ function SessaoCard({ sessao, highlight, completing, onComplete, feedbackSessao,
         </div>
       )}
     </div>
+    </>
   )
 }
 
@@ -492,10 +575,7 @@ export function TreinoAlunoClient({
 
   const hoje = new Date().getDay()
   const musculacaoSessoes = sessoes.filter(s => s.tipo !== 'aerobico')
-  const usadiaSemana = musculacaoSessoes.some(s => s.dia_semana_numero !== null)
-  const treinoHoje = usadiaSemana
-    ? musculacaoSessoes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje) ?? null
-    : musculacaoSessoes.find(s => s.status !== 'realizado') ?? null
+  const treinoHoje = musculacaoSessoes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje) ?? null
 
   const now = new Date()
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
