@@ -87,41 +87,6 @@ function calcSemanaAtual(dataInicio: string | null, dataFim: string | null): { s
   return { semana: Math.min(semana, total), total }
 }
 
-function extractYoutubeId(url: string | null): string | null {
-  if (!url) return null
-  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([^&?\s/]+)/)
-  return m ? m[1] : null
-}
-
-function VideoThumbnail({ url, nome, size = 'sm' }: { url: string; nome: string; size?: 'sm' | 'lg' }) {
-  const [playing, setPlaying] = useState(false)
-  const vid = extractYoutubeId(url)
-  if (!vid) return null
-  if (playing) {
-    return (
-      <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setPlaying(false)}>
-        <div className="relative w-full max-w-2xl" onClick={e => e.stopPropagation()}>
-          <button onClick={() => setPlaying(false)} className="absolute -top-10 right-0 text-white hover:text-gray-300"><X size={24} /></button>
-          <div className="aspect-video w-full">
-            <iframe src={`https://www.youtube.com/embed/${vid}?autoplay=1`} className="w-full h-full rounded-xl" allowFullScreen allow="autoplay; encrypted-media" title={nome} />
-          </div>
-        </div>
-      </div>
-    )
-  }
-  const dims = size === 'lg' ? 'w-24 h-20' : 'w-16 h-12'
-  return (
-    <button onClick={() => setPlaying(true)} className={`relative ${dims} rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity`} title={`Ver: ${nome}`}>
-      <img src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
-      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-        <div className="w-7 h-7 bg-red-600 rounded-full flex items-center justify-center shadow">
-          <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[8px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
-        </div>
-      </div>
-    </button>
-  )
-}
-
 function SessaoCard({ sessao, highlight }: { sessao: Sessao; highlight: boolean }) {
   const [isOpen, setIsOpen] = useState(highlight)
   const router = useRouter()
