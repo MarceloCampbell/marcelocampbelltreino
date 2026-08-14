@@ -58,7 +58,6 @@ export default async function TreinoAlunoPage() {
       <Header title="Meu Treino" />
       <div className="p-5 max-w-2xl">
         <TreinoAlunoClient
-          alunoId={aluno.id}
           nomeAluno={usuario.nome}
           sessoes={sessoesRes.data ?? []}
           aerobicos={aerobicosRes.data ?? []}
