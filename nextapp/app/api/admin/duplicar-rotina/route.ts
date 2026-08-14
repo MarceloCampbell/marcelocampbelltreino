@@ -56,6 +56,8 @@ export async function POST(request: NextRequest) {
     tipo: rotina.tipo,
     objetivo: rotina.objetivo,
     orientacoes: rotina.orientacoes,
+    data_inicio: rotina.data_inicio,
+    data_fim: rotina.data_fim,
     visivel_antes_de_iniciar: rotina.visivel_antes_de_iniciar,
     ocultar_ao_vencer: rotina.ocultar_ao_vencer,
   }).select('id').single()
