@@ -66,8 +66,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ sucesso: false, erro: 'Erro ao criar rotina: ' + cicloError?.message }, { status: 500 })
 
   // Create sessoes and items
+  const sessaoErrors: string[] = []
   for (const sessao of (rotina.sessoes_treino ?? [])) {
     const { data: novaSessao, error: sessaoError } = await admin.from('sessoes_treino').insert({
+      aluno_id: targetAlunoId,
       ciclo_id: novo.id,
       nome: sessao.nome,
       tipo: sessao.tipo,
@@ -80,7 +82,10 @@ export async function POST(request: NextRequest) {
       ordem: sessao.ordem,
     }).select('id').single()
 
-    if (sessaoError || !novaSessao) continue
+    if (sessaoError || !novaSessao) {
+      sessaoErrors.push(`Sessão "${sessao.nome}": ${sessaoError?.message}`)
+      continue
+    }
     if (!sessao.sessao_itens?.length) continue
 
     await admin.from('sessao_itens').insert(
@@ -98,6 +103,9 @@ export async function POST(request: NextRequest) {
       }))
     )
   }
+
+  if (sessaoErrors.length > 0)
+    return NextResponse.json({ sucesso: true, avisos: sessaoErrors })
 
   return NextResponse.json({ sucesso: true })
 }

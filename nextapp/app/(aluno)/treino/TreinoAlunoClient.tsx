@@ -492,7 +492,10 @@ export function TreinoAlunoClient({
 
   const hoje = new Date().getDay()
   const musculacaoSessoes = sessoes.filter(s => s.tipo !== 'aerobico')
-  const treinoHoje = musculacaoSessoes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje) ?? null
+  const usadiaSemana = musculacaoSessoes.some(s => s.dia_semana_numero !== null)
+  const treinoHoje = usadiaSemana
+    ? musculacaoSessoes.find(s => s.dia_semana_numero !== null && s.dia_semana_numero === hoje) ?? null
+    : musculacaoSessoes.find(s => s.status !== 'realizado') ?? null
 
   const now = new Date()
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`

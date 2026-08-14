@@ -816,7 +816,8 @@ export function GestaoAlunoClient({
 
   async function excluirRotina(id: string) {
     if (!confirm('Mover para excluídos? Você poderá restaurar depois.')) return
-    await supabase.from('ciclos').update({ status: 'excluido' }).eq('id', id)
+    const { error } = await supabase.from('ciclos').update({ status: 'excluido' }).eq('id', id)
+    if (error) { alert('Erro ao excluir rotina: ' + error.message); return }
     setCiclosList(prev => prev.map(c => c.id === id ? { ...c, status: 'excluido' } : c))
     if (selectedRotina?.id === id) setSelectedRotina(null)
   }
@@ -2676,10 +2677,6 @@ ${s.sessao_itens.map((item, i) => `
                 <button onClick={() => { setTab(4); }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
                   <Plus size={14} /> Nova Anotação
                 </button>
-                <button onClick={() => { setShowResetModal(true); setResetMsg('') }} className="btn-secondary text-xs py-2 px-3 justify-center w-full">
-                  <KeyRound size={14} /> Redefinir Senha
-                </button>
-
                 {/* ── Gerar nova senha temporária ── */}
                 <div>
                   <button
