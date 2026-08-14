@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   const { data: novo, error: cicloError } = await admin.from('ciclos').insert({
     aluno_id: targetAlunoId,
     nome: rotina.nome,
-    status: 'rascunho',
+    status: 'planejado',
     tipo: rotina.tipo,
     objetivo: rotina.objetivo,
     orientacoes: rotina.orientacoes,
