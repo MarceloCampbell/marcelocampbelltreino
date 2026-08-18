@@ -1,65 +1,39 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, Clock, Maximize2, X, RefreshCw,
-  CheckCircle2, Loader2,
+  CheckCircle2, Loader2, Share2, Dumbbell,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
-type ExercicioBase = {
-  id: string
-  nome: string
-  grupo_muscular: string
-  video_url: string | null
-  instrucoes: string | null
-}
-
-type ExercicioComSubstituto = ExercicioBase & {
-  exercicio_substituto_id: string | null
-  substituto: ExercicioBase | null
-}
-
+// ── Types ──────────────────────────────────────────────────────────────────────
+type ExercicioBase = { id: string; nome: string; grupo_muscular: string; video_url: string | null; instrucoes: string | null }
+type ExercicioComSub = ExercicioBase & { exercicio_substituto_id: string | null; substituto: ExercicioBase | null }
 type SessaoItem = {
-  id: string
-  ordem: number
-  series: number | null
-  repeticoes: string | null
-  carga_kg: number | null
-  descanso_seg: number | null
-  observacoes: string | null
-  periodizacao_semanal: any
-  biset_grupo: string | null
-  exercicio: ExercicioComSubstituto | null
+  id: string; ordem: number; series: number | null; repeticoes: string | null
+  carga_kg: number | null; descanso_seg: number | null; observacoes: string | null
+  periodizacao_semanal: any; biset_grupo: string | null; exercicio: ExercicioComSub | null
 }
-
 type Sessao = {
-  id: string
-  nome: string
-  tipo: string
-  dia_letra: string | null
-  status: string
-  duracao_min: number | null
-  intensidade: string | null
-  observacoes: string | null
-  orientacoes_aluno: string | null
-  ciclo_id: string | null
-  sessao_itens: SessaoItem[]
+  id: string; nome: string; tipo: string; dia_letra: string | null; status: string
+  duracao_min: number | null; intensidade: string | null; observacoes: string | null
+  orientacoes_aluno: string | null; ciclo_id: string | null; sessao_itens: SessaoItem[]
+}
+type Ciclo = { id: string; nome: string; data_inicio: string | null; data_fim: string | null } | null
+type FeedbackForm = {
+  energia: number; progressoCarga: string; exercicioDificil: string; melhorMomento: string
+  sentiu_dor: boolean; descricao_dor: string; obstaculos: string; pergunta: string; pesoAtual: string
 }
 
-type Ciclo = {
-  id: string
-  nome: string
-  data_inicio: string | null
-  data_fim: string | null
-} | null
-
+// ── Constants ──────────────────────────────────────────────────────────────────
 const MC_FASES = [
   'Adaptação Técnica','Consolidação','Progressão','Estabilidade','Volume',
   'Intensidade','Expansão','Força','Performance','Refinamento','Recuperação Ativa','Fechamento',
 ]
 
+// ── Utils ──────────────────────────────────────────────────────────────────────
 function calcSemana(dataInicio: string | null): number | null {
   if (!dataInicio) return null
   const inicio = new Date(dataInicio + 'T00:00')
@@ -79,6 +53,7 @@ function fmt(secs: number) {
   return `${Math.floor(secs / 60)}:${(secs % 60).toString().padStart(2, '0')}`
 }
 
+// ── VideoThumb — full-width, neutral play icon ─────────────────────────────────
 function VideoThumb({ url, nome }: { url: string; nome: string }) {
   const [playing, setPlaying] = useState(false)
   const vid = extractYoutubeId(url)
@@ -96,104 +71,297 @@ function VideoThumb({ url, nome }: { url: string; nome: string }) {
     )
   }
   return (
-    <button onClick={() => setPlaying(true)} className="relative w-24 h-20 rounded-xl overflow-hidden flex-shrink-0 hover:opacity-90 transition-opacity" title={`Ver: ${nome}`}>
-      <img src={`https://img.youtube.com/vi/${vid}/mqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
-      <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-        <div className="w-7 h-7 bg-red-600 rounded-full flex items-center justify-center shadow">
-          <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[8px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
+    <button onClick={() => setPlaying(true)} className="relative w-full aspect-video rounded-xl overflow-hidden block hover:opacity-95 transition-opacity" title={`Ver: ${nome}`}>
+      <img src={`https://img.youtube.com/vi/${vid}/hqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-lg">
+          <div className="w-0 h-0 border-t-[10px] border-b-[10px] border-l-[18px] border-t-transparent border-b-transparent border-l-white ml-1" />
         </div>
       </div>
     </button>
   )
 }
 
+// ── Main component ─────────────────────────────────────────────────────────────
 export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; sessao: Sessao; ciclo: Ciclo }) {
   const router = useRouter()
   const supabase = createClient()
+  const shareCanvasRef = useRef<HTMLCanvasElement>(null)
 
   const itens = [...(sessao.sessao_itens ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
   const semana = ciclo ? calcSemana(ciclo.data_inicio) : null
   const faseNome = semana ? MC_FASES[(semana - 1) % MC_FASES.length] : null
+  const rotinaName = ciclo?.nome ?? null
 
+  // ── Timer ──────────────────────────────────────────────────────────────────
   const [sessionSecs, setSessionSecs] = useState(0)
+  const [isPaused, setIsPaused] = useState(false)
+
+  // ── Rest timer ─────────────────────────────────────────────────────────────
   const [restTimer, setRestTimer] = useState<{ itemId: string; secs: number } | null>(null)
   const [restTimerFullscreen, setRestTimerFullscreen] = useState(false)
   const [restTimerPaused, setRestTimerPaused] = useState(false)
-  const [completedItemIds, setCompletedItemIds] = useState<Set<string>>(new Set())
+
+  // ── Exercise state ─────────────────────────────────────────────────────────
+  const [exercisesDone, setExercisesDone] = useState<Set<string>>(new Set())
+  const [seriesDone, setSeriesDone] = useState<Record<string, Set<number>>>({})
+  const [cargaRegistrada, setCargaRegistrada] = useState<Record<string, string>>({})
   const [substitutoAberto, setSubstitutoAberto] = useState<string | null>(null)
+
+  // ── UI state ───────────────────────────────────────────────────────────────
   const [showExitModal, setShowExitModal] = useState(false)
+  const [workoutSessionId, setWorkoutSessionId] = useState<string | null>(null)
 
-  // Feedback/complete state
+  // ── Completion flow ────────────────────────────────────────────────────────
   const [completing, setCompleting] = useState(false)
-  const [feedbackStep, setFeedbackStep] = useState(false)
-  const [pse, setPse] = useState(5)
-  const [dor, setDor] = useState(false)
-  const [obs, setObs] = useState('')
-  const [savingFb, setSavingFb] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [showIncompleteDialog, setShowIncompleteDialog] = useState(false)
+  const [incompleteReasons, setIncompleteReasons] = useState<Record<string, string>>({})
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false)
+  const [showCelebration, setShowCelebration] = useState(false)
+  const [isRealizado, setIsRealizado] = useState(sessao.status === 'realizado')
+  const [feedbackForm, setFeedbackForm] = useState<FeedbackForm>({
+    energia: 5, progressoCarga: '', exercicioDificil: '', melhorMomento: '',
+    sentiu_dor: false, descricao_dor: '', obstaculos: '', pergunta: '', pesoAtual: '',
+  })
+  const [savingFeedback, setSavingFeedback] = useState(false)
 
-  // Auto-start session timer
+  // ── Effects ────────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (isPaused) return
     const id = setInterval(() => setSessionSecs(s => s + 1), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [isPaused])
 
-  // Rest timer countdown
   useEffect(() => {
     if (!restTimer || restTimer.secs <= 0 || restTimerPaused) return
     const id = setTimeout(() => setRestTimer(r => r && r.secs > 0 ? { ...r, secs: r.secs - 1 } : null), 1000)
     return () => clearTimeout(id)
-  }, [restTimer?.secs, restTimer?.itemId, restTimerPaused])
+  }, [restTimer?.secs, restTimer?.itemId, restTimerPaused]) // eslint-disable-line
 
+  useEffect(() => {
+    supabase.from('workout_sessions').insert({
+      aluno_id: alunoId, sessao_id: sessao.id,
+      iniciado_em: new Date().toISOString(), status: 'em_andamento',
+    } as any).select('id').single().then(({ data }) => { if (data) setWorkoutSessionId((data as any).id) })
+  }, []) // eslint-disable-line
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [])
+
+  // ── Handlers ───────────────────────────────────────────────────────────────
   function startRestTimer(item: SessaoItem) {
-    setCompletedItemIds(prev => new Set([...prev, item.id]))
+    const idx = itens.findIndex(i => i.id === item.id)
+    if (idx !== -1) {
+      const nextVid = extractYoutubeId(itens[idx + 1]?.exercicio?.video_url ?? null)
+      if (nextVid) {
+        const link = document.createElement('link')
+        link.rel = 'prefetch'
+        link.href = `https://img.youtube.com/vi/${nextVid}/hqdefault.jpg`
+        document.head.appendChild(link)
+      }
+    }
     setRestTimer({ itemId: item.id, secs: item.descanso_seg ?? 90 })
     setRestTimerFullscreen(true)
     setRestTimerPaused(false)
   }
 
-  function stopRestTimer() {
-    setRestTimer(null)
-    setRestTimerFullscreen(false)
-    setRestTimerPaused(false)
+  function stopRestTimer() { setRestTimer(null); setRestTimerFullscreen(false); setRestTimerPaused(false) }
+
+  function toggleExerciseDone(itemId: string, totalSeries?: number) {
+    setExercisesDone(prev => {
+      const s = new Set(prev)
+      const nowDone = !s.has(itemId)
+      nowDone ? s.add(itemId) : s.delete(itemId)
+      if (totalSeries) {
+        setSeriesDone(sd => ({
+          ...sd,
+          [itemId]: nowDone ? new Set(Array.from({ length: totalSeries }, (_, i) => i + 1)) : new Set(),
+        }))
+      }
+      return s
+    })
   }
 
-  async function marcarConcluido() {
-    setCompleting(true)
-    await supabase.from('sessoes_treino').update({ status: 'realizado' } as any).eq('id', sessao.id)
-    setCompleting(false)
-    setFeedbackStep(true)
+  function toggleSerie(itemId: string, serieNum: number, totalSeries: number) {
+    setSeriesDone(prev => {
+      const current = new Set(prev[itemId] ?? [])
+      current.has(serieNum) ? current.delete(serieNum) : current.add(serieNum)
+      const allDone = current.size === totalSeries
+      setExercisesDone(ed => { const s = new Set(ed); allDone ? s.add(itemId) : s.delete(itemId); return s })
+      return { ...prev, [itemId]: current }
+    })
+  }
+
+  function calcVolume() {
+    return itens.reduce((total, item) => {
+      if (!exercisesDone.has(item.id)) return total
+      const carga = parseFloat(cargaRegistrada[item.id] || '0') || (item.carga_kg ?? 0)
+      const reps = parseInt(item.repeticoes ?? '0') || 0
+      return total + carga * reps * (item.series ?? 0)
+    }, 0)
+  }
+
+  async function marcarRealizado() {
+    const incomplete = itens.filter(i => !exercisesDone.has(i.id))
+    if (incomplete.length > 0) { setShowIncompleteDialog(true); return }
+    await finalizarTreino()
+  }
+
+  async function finalizarTreino() {
+    setCompleting(true); setActionError(null); setIsPaused(true)
+    try {
+      const { error } = await supabase.from('sessoes_treino').update({ status: 'realizado' } as any).eq('id', sessao.id)
+      if (error) throw error
+      setIsRealizado(true)
+      const incomplete = itens.filter(i => !exercisesDone.has(i.id))
+      if (workoutSessionId) {
+        await supabase.from('workout_sessions').update({
+          concluido_em: new Date().toISOString(),
+          status: incomplete.length > 0 ? 'incompleto' : 'concluido',
+          motivo_incompleto: incomplete.length > 0
+            ? incomplete.map(i => `${i.exercicio?.nome ?? '?'}: ${incompleteReasons[i.id] || 'Não informado'}`).join('; ')
+            : null,
+        } as any).eq('id', workoutSessionId)
+        for (const item of itens) {
+          if (!exercisesDone.has(item.id)) continue
+          const carga = parseFloat(cargaRegistrada[item.id] || '0') || null
+          const series = item.series ?? 0
+          if (series > 0) {
+            await supabase.from('set_executions').insert(
+              Array.from({ length: series }, (_, idx) => ({
+                session_id: workoutSessionId, sessao_item_id: item.id,
+                numero_serie: idx + 1, carga_registrada: carga, concluida: true,
+              })) as any
+            )
+          }
+        }
+      }
+      setShowIncompleteDialog(false); setShowFeedbackForm(true)
+    } catch {
+      setActionError('Não conseguimos salvar. Tente novamente.'); setIsPaused(false)
+    } finally {
+      setCompleting(false)
+    }
   }
 
   async function enviarFeedback() {
-    setSavingFb(true)
-    await supabase.from('feedbacks_treino').insert({
-      aluno_id: alunoId,
-      sessao_id: sessao.id,
-      completou: true,
-      pse_final: pse,
-      sentiu_dor: dor,
-      observacoes_livres: obs || null,
-    } as any)
-    setSavingFb(false)
-    router.push('/treino')
-    router.refresh()
+    setSavingFeedback(true); setActionError(null)
+    try {
+      const incompleteList = itens.filter(i => !exercisesDone.has(i.id))
+        .map(i => ({ nome: i.exercicio?.nome ?? '?', motivo: incompleteReasons[i.id] || 'Não informado' }))
+      await supabase.from('workout_feedbacks').insert({
+        aluno_id: alunoId, sessao_id: sessao.id, workout_session_id: workoutSessionId,
+        energia_nivel: feedbackForm.energia, progresso_carga: feedbackForm.progressoCarga || null,
+        exercicio_mais_dificil: feedbackForm.exercicioDificil || null,
+        melhor_momento: feedbackForm.melhorMomento || null,
+        sentiu_dor: feedbackForm.sentiu_dor, descricao_dor: feedbackForm.descricao_dor || null,
+        obstaculos: feedbackForm.obstaculos || null, pergunta_marcelo: feedbackForm.pergunta || null,
+        peso_atual: feedbackForm.pesoAtual ? parseFloat(feedbackForm.pesoAtual) : null,
+        exercicios_incompletos: incompleteList.length > 0 ? incompleteList : null,
+      } as any)
+      setShowFeedbackForm(false); setShowCelebration(true)
+    } catch { setActionError('Não foi possível salvar o feedback.') }
+    finally { setSavingFeedback(false) }
   }
 
-  const pct = itens.length > 0 ? Math.round((completedItemIds.size / itens.length) * 100) : 0
-  const isRealizado = sessao.status === 'realizado'
+  // ── Share ──────────────────────────────────────────────────────────────────
+  function drawShareCard(canvas: HTMLCanvasElement) {
+    const W = 540, H = 960
+    canvas.width = W; canvas.height = H
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.clearRect(0, 0, W, H)
+    ctx.fillStyle = '#1E6FD9'; ctx.fillRect(0, 0, W, 6)
+    ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 8
+    ctx.font = 'bold 22px system-ui, -apple-system, sans-serif'; ctx.fillStyle = '#4A90D9'; ctx.textAlign = 'center'
+    ctx.fillText('MC TREINO', W / 2, 60); ctx.shadowBlur = 0
+    ctx.beginPath(); ctx.arc(W / 2, 155, 52, 0, Math.PI * 2)
+    ctx.fillStyle = '#14532D'; ctx.fill()
+    ctx.strokeStyle = '#22C55E'; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+    ctx.beginPath(); ctx.moveTo(W/2-20,155); ctx.lineTo(W/2-4,172); ctx.lineTo(W/2+22,138); ctx.stroke()
+    ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 12
+    ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 36px system-ui, -apple-system, sans-serif'
+    ctx.fillText('Treino Concluído!', W/2, 248); ctx.shadowBlur = 0
+    const hoje = new Date()
+    ctx.fillStyle = '#CBD5E1'; ctx.font = '19px system-ui, -apple-system, sans-serif'
+    ctx.fillText(hoje.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' }), W/2, 285)
+    const dayLetters = ['S','T','Q','Q','S','S','D']; const jsDay = hoje.getDay()
+    const activeIdx = jsDay === 0 ? 6 : jsDay - 1
+    const startX = (W - dayLetters.length * 52) / 2 + 26
+    dayLetters.forEach((d, i) => {
+      const x = startX + i * 52
+      ctx.beginPath(); ctx.arc(x, 348, 20, 0, Math.PI * 2)
+      ctx.fillStyle = i === activeIdx ? '#1E6FD9' : '#1E2D45'; ctx.fill()
+      ctx.fillStyle = i === activeIdx ? '#FFFFFF' : '#475569'
+      ctx.font = `${i === activeIdx ? 'bold ' : ''}14px system-ui, -apple-system, sans-serif`
+      ctx.fillText(d, x, 354)
+    })
+    ctx.strokeStyle = '#1E2D45'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.moveTo(60, 395); ctx.lineTo(W-60, 395); ctx.stroke()
+    if (rotinaName) {
+      ctx.fillStyle = '#475569'; ctx.font = '16px system-ui, -apple-system, sans-serif'
+      ctx.fillText(rotinaName, W/2, 430)
+    }
+    const treinoLabel = (sessao.dia_letra ? `${sessao.dia_letra} – ` : '') + sessao.nome
+    ctx.shadowColor = 'rgba(0,0,0,0.85)'; ctx.shadowBlur = 10
+    ctx.fillStyle = '#FFFFFF'; ctx.font = 'bold 26px system-ui, -apple-system, sans-serif'
+    ctx.fillText(treinoLabel.length > 28 ? treinoLabel.slice(0,28)+'…' : treinoLabel, W/2, rotinaName ? 468 : 445)
+    ctx.shadowBlur = 0
+    const grupos = [...new Set(itens.filter(i => exercisesDone.has(i.id)).map(i => i.exercicio?.grupo_muscular).filter(Boolean))] as string[]
+    if (grupos.length > 0) {
+      const gt = grupos.join(' · ').toUpperCase()
+      ctx.fillStyle = '#4A90D9'; ctx.font = 'bold 14px system-ui, -apple-system, sans-serif'
+      ctx.fillText(gt.length > 45 ? gt.slice(0,45)+'…' : gt, W/2, rotinaName ? 500 : 477)
+    }
+    const statsY = 570
+    ctx.fillStyle = 'rgba(15,30,50,0.82)'; (ctx as any).roundRect(40, statsY-30, W-80, 80, 16); ctx.fill()
+    const stats = [{ label:'DURAÇÃO', value: fmt(sessionSecs) }, { label:'EXERCÍCIOS', value:`${exercisesDone.size}/${itens.length}` }, { label:'VOLUME', value:`${calcVolume().toFixed(0)}kg` }]
+    stats.forEach((s, i) => {
+      const x = 40 + (W-80)/6 + i*(W-80)/3
+      ctx.fillStyle = '#4A90D9'; ctx.font = 'bold 24px system-ui, -apple-system, sans-serif'; ctx.fillText(s.value, x, statsY+10)
+      ctx.fillStyle = '#475569'; ctx.font = '11px system-ui, -apple-system, sans-serif'; ctx.fillText(s.label, x, statsY+28)
+    })
+    ctx.fillStyle = 'rgba(6,14,26,0.88)'; ctx.fillRect(0, H-70, W, 70)
+    ctx.fillStyle = '#1E6FD9'; ctx.font = 'bold 16px system-ui, -apple-system, sans-serif'; ctx.fillText('mc-treino.app', W/2, H-38)
+    ctx.fillStyle = '#2A3F5A'; ctx.font = '12px system-ui, -apple-system, sans-serif'; ctx.fillText('Registre. Evolua. Compartilhe.', W/2, H-16)
+  }
 
-  // ── Groups (biset) ─────────────────────────────────────────────────────────
+  async function handleShare() {
+    const canvas = shareCanvasRef.current; if (!canvas) return
+    drawShareCard(canvas)
+    canvas.toBlob(async (blob) => {
+      if (!blob) return
+      const file = new File([blob], 'meu-treino.png', { type:'image/png' })
+      try {
+        if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title:'Treino Concluído!', text:`Concluí "${sessao.nome}" no MC Treino!` })
+        } else if (typeof navigator.share === 'function') {
+          await navigator.share({ title:'Treino Concluído!', text:`Concluí "${sessao.nome}" no MC Treino!` })
+        } else {
+          const url = URL.createObjectURL(blob)
+          const a = document.createElement('a'); a.href = url; a.download = 'meu-treino.png'; a.click()
+          URL.revokeObjectURL(url)
+        }
+      } catch { /* cancelled */ }
+    }, 'image/png')
+  }
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const pct = itens.length > 0 ? Math.round((exercisesDone.size / itens.length) * 100) : 0
+
   const groups: SessaoItem[][] = []
-  const seen = new Set<string>()
+  const seenGroups = new Set<string>()
   for (const item of itens) {
     if (item.biset_grupo) {
-      if (!seen.has(item.biset_grupo)) {
-        seen.add(item.biset_grupo)
+      if (!seenGroups.has(item.biset_grupo)) {
+        seenGroups.add(item.biset_grupo)
         groups.push(itens.filter(i => i.biset_grupo === item.biset_grupo))
       }
-    } else {
-      groups.push([item])
-    }
+    } else { groups.push([item]) }
   }
 
   function renderItem(item: SessaoItem) {
@@ -201,64 +369,115 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
     const showSub = substitutoAberto === item.id && ex?.substituto
     const videoEx = showSub ? ex!.substituto! : ex
     const isResting = restTimer?.itemId === item.id
+    const isDone = exercisesDone.has(item.id)
 
-    const series = semana
-      ? (item.periodizacao_semanal?.find((p: any) => p.semana === semana) ?? item.periodizacao_semanal?.[0])?.series ?? item.series
-      : item.series
-    const repeticoes = semana
-      ? (item.periodizacao_semanal?.find((p: any) => p.semana === semana) ?? item.periodizacao_semanal?.[0])?.repeticoes ?? item.repeticoes
-      : item.repeticoes
-    const carga = semana
-      ? (item.periodizacao_semanal?.find((p: any) => p.semana === semana) ?? item.periodizacao_semanal?.[0])?.carga_kg ?? item.carga_kg
-      : item.carga_kg
+    const semData = semana && item.periodizacao_semanal?.length > 0
+      ? (item.periodizacao_semanal.find((p: any) => p.semana === semana) ?? item.periodizacao_semanal[0])
+      : null
+    const series = semData?.series ?? item.series
+    const repeticoes = semData?.repeticoes ?? item.repeticoes
+    const carga = semData?.carga_kg ?? item.carga_kg
 
     return (
-      <div key={item.id} className="flex gap-3 p-4">
-        <div className="flex-1 min-w-0">
-          {showSub && <p className="text-[10px] text-orange-500 font-bold uppercase tracking-wide mb-0.5">Substituto</p>}
-          <p className="font-bold text-secondary text-base leading-tight">
+      <div key={item.id} className={`p-4 transition-colors ${isDone ? 'bg-green-50/60' : ''}`}>
+
+        {/* 1. Nome + Substituto inline */}
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          {showSub && <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wide">Substituto:</span>}
+          <p className="font-bold text-secondary text-lg leading-tight">
             {showSub ? ex!.substituto!.nome : (ex?.nome ?? '–')}
           </p>
-          <div className="mt-2 space-y-1">
-            {(series || repeticoes) && (
-              <p className="text-sm text-secondary">
-                <span className="font-semibold">Séries:</span>{' '}
-                {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
-              </p>
-            )}
-            {carga && <p className="text-sm text-secondary"><span className="font-semibold">Carga:</span> {carga}kg</p>}
-            {item.descanso_seg && <p className="text-sm text-secondary"><span className="font-semibold">Intervalo:</span> {item.descanso_seg}s</p>}
+          {ex?.substituto && (
+            <button
+              onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
+              className="flex items-center gap-1 text-xs text-orange-500 font-semibold hover:text-orange-700"
+            >
+              <RefreshCw size={11} />
+              {substitutoAberto === item.id ? 'Original' : 'Substituto'}
+            </button>
+          )}
+        </div>
+
+        {/* 2. Vídeo full-width */}
+        {videoEx?.video_url && (
+          <div className="mb-3">
+            <VideoThumb url={videoEx.video_url} nome={videoEx.nome} />
           </div>
-          {item.observacoes && (
-            <div className="mt-2.5">
-              <p className="text-sm font-semibold text-secondary">Instruções:</p>
-              <p className="text-sm text-outline mt-0.5 leading-snug">{item.observacoes}</p>
+        )}
+
+        {/* 3. Séries + bolinhas */}
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          {(series || repeticoes) && (
+            <p className="text-sm font-semibold text-secondary">
+              Séries: {series && repeticoes ? `${series}×${repeticoes}` : (series ?? repeticoes)}
+            </p>
+          )}
+          {(series ?? 0) > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {Array.from({ length: series as number }).map((_, i) => {
+                const sNum = i + 1
+                const checked = seriesDone[item.id]?.has(sNum) ?? false
+                return (
+                  <button
+                    key={sNum}
+                    onClick={() => toggleSerie(item.id, sNum, series as number)}
+                    className={`w-8 h-8 rounded-full border-2 text-sm font-bold flex items-center justify-center transition-all ${
+                      checked ? 'border-green-500 bg-green-500 text-white' : 'border-gray-200 bg-gray-50 text-gray-400 hover:border-green-400 hover:text-green-500'
+                    }`}
+                  >
+                    {checked ? '✓' : sNum}
+                  </button>
+                )
+              })}
             </div>
           )}
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            {ex?.substituto && (
-              <button
-                onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
-                className="flex items-center gap-1 text-xs text-orange-600 font-semibold hover:text-orange-700"
-              >
-                <RefreshCw size={11} />
-                {substitutoAberto === item.id ? 'Ver original' : 'Substituto'}
-              </button>
-            )}
-            <button
-              onClick={() => startRestTimer(item)}
-              className={`flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors ${isResting ? 'bg-orange-100 text-orange-600' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-            >
-              <Clock size={11} />
-              {isResting ? fmt(restTimer!.secs) : 'Intervalo'}
-            </button>
-          </div>
         </div>
-        {videoEx?.video_url && <VideoThumb url={videoEx.video_url} nome={videoEx.nome} />}
+
+        {/* 4. Marcar como feito */}
+        <button
+          onClick={() => toggleExerciseDone(item.id, series ?? undefined)}
+          className={`flex items-center gap-1.5 text-sm font-semibold transition-colors mb-3 ${isDone ? 'text-green-600' : 'text-outline hover:text-green-600'}`}
+        >
+          <CheckCircle2 size={18} className={isDone ? 'fill-green-100' : ''} />
+          {isDone ? 'Exercício concluído' : 'Marcar como feito'}
+        </button>
+
+        {/* 5. Intervalo */}
+        {item.descanso_seg && (
+          <button
+            onClick={() => startRestTimer(item)}
+            className={`flex items-center gap-1.5 text-sm font-semibold mb-3 transition-colors ${isResting ? 'text-orange-500' : 'text-secondary hover:text-primary'}`}
+          >
+            <Clock size={14} className="flex-shrink-0" />
+            {isResting ? `Intervalo: ${fmt(restTimer!.secs)}` : `Intervalo: ${item.descanso_seg}s`}
+          </button>
+        )}
+
+        {/* 6. Carga editável */}
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-sm font-semibold text-secondary">Carga:</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            className="w-32 border border-outline-variant rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:border-primary"
+            placeholder={carga ? String(carga) : 'ex: 40/45/50'}
+            value={cargaRegistrada[item.id] ?? ''}
+            onChange={e => setCargaRegistrada(prev => ({ ...prev, [item.id]: e.target.value }))}
+          />
+        </div>
+
+        {/* 7. Instruções */}
+        {item.observacoes && (
+          <div>
+            <p className="text-sm font-semibold text-secondary mb-0.5">Instruções:</p>
+            <p className="text-sm text-outline leading-snug">{item.observacoes}</p>
+          </div>
+        )}
       </div>
     )
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col bg-background min-h-screen">
 
@@ -286,21 +505,24 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
           <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden">
             <div className="p-5 border-b border-outline-variant text-center">
               <p className="font-bold text-secondary">Sair do treino?</p>
-              <p className="text-sm text-outline mt-1">O progresso desta sessão não será salvo.</p>
+              <p className="text-sm text-outline mt-1">O treino está em andamento.</p>
             </div>
             <div className="p-3 space-y-2">
-              <button onClick={() => router.back()} className="w-full py-3 px-4 rounded-xl bg-secondary text-white font-semibold text-sm">
-                Sair
+              <button onClick={() => { setIsPaused(true); setShowExitModal(false); router.back() }} className="w-full py-3 px-4 rounded-xl bg-secondary text-white font-semibold text-sm">
+                Sair e pausar
               </button>
-              <button onClick={() => setShowExitModal(false)} className="w-full py-3 px-4 rounded-xl bg-gray-100 text-secondary font-semibold text-sm">
-                Continuar treinando
+              <button onClick={() => { setShowExitModal(false); router.back() }} className="w-full py-3 px-4 rounded-xl bg-gray-100 text-secondary font-semibold text-sm">
+                Sair sem pausar
+              </button>
+              <button onClick={() => setShowExitModal(false)} className="w-full py-3 px-4 rounded-xl text-outline text-sm">
+                Cancelar
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Sticky header */}
+      {/* ── Sticky header ── */}
       <div className="sticky top-0 z-20 bg-white border-b border-outline-variant shadow-sm">
         <div className="flex items-center gap-2 px-4 pt-3 pb-2 max-w-2xl mx-auto">
           <button onClick={() => setShowExitModal(true)} className="p-2 -ml-1 rounded-xl hover:bg-gray-100 transition-colors flex-shrink-0">
@@ -309,19 +531,17 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
           <div className="flex-1 min-w-0">
             <p className="font-bold text-secondary text-sm truncate">{sessao.nome}</p>
             <p className="text-[11px] text-outline truncate">
-              {faseNome && `${faseNome} · `}{itens.length} exercício{itens.length !== 1 ? 's' : ''}
+              {faseNome ? `${faseNome} · ` : ''}{itens.length} exercício{itens.length !== 1 ? 's' : ''}
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0 text-right">
-            <div>
-              <p className="text-base font-bold text-green-700 tabular-nums leading-none">{fmt(sessionSecs)}</p>
-              <p className="text-[10px] text-green-600">em andamento</p>
-            </div>
+          <div className="flex-shrink-0 text-right">
+            <p className={`text-base font-bold tabular-nums leading-none ${isPaused ? 'text-outline' : 'text-green-700'}`}>{fmt(sessionSecs)}</p>
+            <p className="text-[10px] text-green-600">{isPaused ? 'pausado' : 'em andamento'}</p>
           </div>
         </div>
         <div className="px-4 pb-3 max-w-2xl mx-auto">
           <div className="flex items-center justify-between text-[10px] text-outline mb-1.5">
-            <span>{completedItemIds.size} de {itens.length} concluídos</span>
+            <span>{exercisesDone.size} de {itens.length} concluídos</span>
             <span className="font-semibold text-primary">{pct}%</span>
           </div>
           <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
@@ -330,8 +550,8 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 max-w-2xl w-full mx-auto px-4 pb-24 space-y-4 pt-4">
+      {/* ── Content ── */}
+      <div className="flex-1 max-w-2xl w-full mx-auto px-4 pb-24 pt-4 space-y-4">
 
         {/* Orientações */}
         {(sessao.observacoes || sessao.orientacoes_aluno) && (
@@ -357,12 +577,11 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
 
         {/* Exercise list */}
         <div className="space-y-3">
-          {groups.map((group) => {
+          {groups.map(group => {
             if (group.length === 1) {
               const item = group[0]
-              const isResting = restTimer?.itemId === item.id
               return (
-                <div key={item.id} className={`bg-white rounded-2xl overflow-hidden shadow-card ${isResting ? 'ring-1 ring-orange-300' : ''}`}>
+                <div key={item.id} className={`bg-white rounded-2xl overflow-hidden shadow-card ${restTimer?.itemId === item.id ? 'ring-1 ring-orange-300' : ''}`}>
                   {renderItem(item)}
                 </div>
               )
@@ -383,46 +602,181 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
           })}
         </div>
 
-        {/* Complete & Feedback */}
-        {!feedbackStep && !isRealizado && (
-          <button onClick={marcarConcluido} disabled={completing} className="btn-primary w-full mt-2">
+        {/* Error */}
+        {actionError && (
+          <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl px-4 py-3">
+            <span>{actionError}</span>
+            <button onClick={() => setActionError(null)} className="text-red-500 underline text-xs flex-shrink-0">Fechar</button>
+          </div>
+        )}
+
+        {/* Incomplete dialog */}
+        {showIncompleteDialog && (() => {
+          const incomplete = itens.filter(i => !exercisesDone.has(i.id))
+          return (
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5">
+              <p className="font-bold text-secondary mb-1">Exercícios sem conclusão ({incomplete.length})</p>
+              <p className="text-sm text-outline mb-4">Selecione o motivo para cada um:</p>
+              <div className="space-y-5 max-h-64 overflow-y-auto pr-1">
+                {incomplete.map(item => (
+                  <div key={item.id}>
+                    <p className="text-sm font-semibold text-secondary mb-2">{item.exercicio?.nome ?? 'Exercício'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {['Máquina ocupada','Dor ou desconforto','Falta de tempo','Outro'].map(m => (
+                        <button key={m} onClick={() => setIncompleteReasons(prev => ({ ...prev, [item.id]: m }))}
+                          className={`text-xs font-semibold py-2 px-2 rounded-xl border transition-all ${incompleteReasons[item.id] === m ? 'bg-primary text-white border-primary' : 'bg-white text-secondary border-outline-variant hover:border-primary'}`}>
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-3 mt-4">
+                <button onClick={finalizarTreino} disabled={completing} className="btn-primary flex-1">
+                  {completing ? <Loader2 size={14} className="animate-spin" /> : null}
+                  Concluir assim mesmo
+                </button>
+                <button onClick={() => setShowIncompleteDialog(false)} className="btn-ghost text-sm">Cancelar</button>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Finalize button */}
+        {!isRealizado && !showIncompleteDialog && !showFeedbackForm && !showCelebration && (
+          <button onClick={marcarRealizado} disabled={completing} className="btn-primary w-full">
             {completing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-            {completing ? 'Marcando...' : 'Marcar como Concluído'}
+            {completing ? 'Salvando...' : 'Finalizar Treino'}
           </button>
         )}
 
-        {feedbackStep && (
-          <div className="bg-white rounded-2xl shadow-card p-5 space-y-4">
-            <h4 className="font-bold text-secondary text-lg">Como foi o treino?</h4>
+        {/* Feedback form */}
+        {showFeedbackForm && (
+          <div className="bg-white rounded-2xl shadow-card p-5 space-y-5">
+            <div className="text-center pb-2 border-b border-outline-variant">
+              <p className="text-3xl mb-1">🏆</p>
+              <p className="font-extrabold text-secondary text-lg">Treino concluído!</p>
+              <p className="text-sm text-outline mt-1">{fmt(sessionSecs)} · {exercisesDone.size}/{itens.length} exercícios · {calcVolume().toFixed(0)} kg volume</p>
+            </div>
+            <h4 className="font-bold text-secondary">Como foi o treino?</h4>
+
             <div>
-              <label className="label">PSE — Percepção de Esforço (1–10)</label>
-              <div className="flex gap-2 mt-2 flex-wrap">
+              <label className="label">Nível de energia (1–10)</label>
+              <div className="flex gap-1.5 mt-2 flex-wrap">
                 {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                  <button key={n} onClick={() => setPse(n)} className={`w-10 h-10 rounded-full text-sm font-bold transition-all ${pse === n ? 'bg-primary text-white' : 'bg-gray-100 text-secondary hover:bg-gray-200'}`}>{n}</button>
+                  <button key={n} onClick={() => setFeedbackForm(p => ({ ...p, energia: n }))}
+                    className={`w-9 h-9 rounded-full text-sm font-bold transition-all ${feedbackForm.energia === n ? 'bg-primary text-white' : 'bg-white border border-outline-variant text-secondary hover:border-primary'}`}>
+                    {n}
+                  </button>
                 ))}
               </div>
             </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={dor} onChange={e => setDor(e.target.checked)} className="w-4 h-4" />
-              <span className="text-sm text-secondary">Senti dor ou desconforto</span>
-            </label>
             <div>
-              <label className="label">Observações (opcional)</label>
-              <textarea className="input min-h-[80px] mt-1" placeholder="Como se sentiu, o que foi difícil..." value={obs} onChange={e => setObs(e.target.value)} />
+              <label className="label">Progredi nas cargas esta semana?</label>
+              <div className="flex gap-2 mt-1">
+                {[{v:'sim',l:'Sim'},{v:'nao',l:'Não'},{v:'em_alguns',l:'Em alguns'}].map(({v,l}) => (
+                  <button key={v} onClick={() => setFeedbackForm(p => ({ ...p, progressoCarga: v }))}
+                    className={`flex-1 py-2.5 text-sm font-semibold rounded-xl border transition-all ${feedbackForm.progressoCarga === v ? 'bg-primary text-white border-primary' : 'bg-white text-secondary border-outline-variant hover:border-primary'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
             </div>
-            <button onClick={enviarFeedback} disabled={savingFb} className="btn-primary w-full">
-              {savingFb ? 'Enviando...' : 'Enviar feedback e voltar'}
+            <div>
+              <label className="label">Exercício mais difícil</label>
+              <input className="input mt-1" placeholder="Nome do exercício..." value={feedbackForm.exercicioDificil} onChange={e => setFeedbackForm(p => ({ ...p, exercicioDificil: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Melhor momento do treino</label>
+              <input className="input mt-1" placeholder="O que te surpreendeu positivamente?" value={feedbackForm.melhorMomento} onChange={e => setFeedbackForm(p => ({ ...p, melhorMomento: e.target.value }))} />
+            </div>
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={feedbackForm.sentiu_dor} onChange={e => setFeedbackForm(p => ({ ...p, sentiu_dor: e.target.checked }))} className="w-4 h-4" />
+                <span className="text-sm text-secondary font-medium">Senti dor ou desconforto</span>
+              </label>
+              {feedbackForm.sentiu_dor && (
+                <input className="input mt-2" placeholder="Onde? Quando no treino?" value={feedbackForm.descricao_dor} onChange={e => setFeedbackForm(p => ({ ...p, descricao_dor: e.target.value }))} />
+              )}
+            </div>
+            <div>
+              <label className="label">Obstáculos encontrados</label>
+              <input className="input mt-1" placeholder="Fila, máquina ocupada, tempo curto..." value={feedbackForm.obstaculos} onChange={e => setFeedbackForm(p => ({ ...p, obstaculos: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Pergunta para o Marcelo</label>
+              <input className="input mt-1" placeholder="Deixe uma dúvida ou sugestão..." value={feedbackForm.pergunta} onChange={e => setFeedbackForm(p => ({ ...p, pergunta: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">Seu peso hoje (kg)</label>
+              <input type="number" step="0.1" min="30" max="300" className="input mt-1" placeholder="Ex: 75.5" value={feedbackForm.pesoAtual} onChange={e => setFeedbackForm(p => ({ ...p, pesoAtual: e.target.value }))} />
+            </div>
+            {actionError && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{actionError}</div>}
+            <button onClick={enviarFeedback} disabled={savingFeedback} className="btn-primary w-full">
+              {savingFeedback ? <Loader2 size={16} className="animate-spin" /> : null}
+              {savingFeedback ? 'Enviando...' : 'Enviar e Concluir'}
             </button>
           </div>
         )}
 
-        {isRealizado && !feedbackStep && (
-          <div className="text-center py-6 text-green-600">
-            <CheckCircle2 size={36} className="mx-auto mb-2" />
-            <p className="font-bold">Treino já concluído!</p>
-            <button onClick={() => router.back()} className="mt-3 text-sm text-outline hover:text-secondary underline">Voltar</button>
-          </div>
-        )}
+        {/* Celebration */}
+        {showCelebration && (() => {
+          const hoje = new Date()
+          const jsDay = hoje.getDay()
+          const activeIdx = jsDay === 0 ? 6 : jsDay - 1
+          const grupos = [...new Set(itens.filter(i => exercisesDone.has(i.id)).map(i => i.exercicio?.grupo_muscular).filter(Boolean))] as string[]
+          return (
+            <div className="bg-white rounded-2xl shadow-card px-5 pt-6 pb-8 text-center">
+              <div className="flex items-center justify-center gap-2 mb-5">
+                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                  <Dumbbell size={18} className="text-white" />
+                </div>
+                <span className="font-extrabold text-secondary text-lg tracking-tight">MC Treino</span>
+              </div>
+              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle2 size={44} className="text-green-500 fill-green-50" />
+              </div>
+              <h2 className="text-2xl font-extrabold text-secondary mb-1">Treino Concluído!</h2>
+              <p className="text-sm text-outline mb-5">{hoje.toLocaleDateString('pt-BR', { weekday:'long', day:'numeric', month:'long' })}</p>
+              <div className="flex justify-center gap-1.5 mb-5">
+                {['S','T','Q','Q','S','S','D'].map((d, i) => (
+                  <div key={i} className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${i === activeIdx ? 'bg-primary text-white shadow-md' : 'bg-gray-100 text-outline'}`}>{d}</div>
+                ))}
+              </div>
+              {rotinaName && <p className="text-xs text-outline mb-0.5">{rotinaName}</p>}
+              <p className="text-lg font-extrabold text-secondary mb-3">{sessao.dia_letra ? `${sessao.dia_letra} – ` : ''}{sessao.nome}</p>
+              {grupos.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-1.5 mb-5">
+                  {grupos.map(g => <span key={g} className="text-xs font-bold text-primary bg-primary/10 px-3 py-1 rounded-full uppercase tracking-wide">{g}</span>)}
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-2 mb-6">
+                <div className="bg-background rounded-xl p-3 text-center">
+                  <p className="text-base font-extrabold text-primary tabular-nums">{fmt(sessionSecs)}</p>
+                  <p className="text-[10px] text-outline mt-0.5">Duração</p>
+                </div>
+                <div className="bg-background rounded-xl p-3 text-center">
+                  <p className="text-base font-extrabold text-primary tabular-nums">{exercisesDone.size}/{itens.length}</p>
+                  <p className="text-[10px] text-outline mt-0.5">Exercícios</p>
+                </div>
+                <div className="bg-background rounded-xl p-3 text-center">
+                  <p className="text-base font-extrabold text-primary tabular-nums">{calcVolume().toFixed(0)}kg</p>
+                  <p className="text-[10px] text-outline mt-0.5">Volume</p>
+                </div>
+              </div>
+              <canvas ref={shareCanvasRef} className="hidden" />
+              <div className="space-y-2">
+                <button onClick={handleShare} className="btn-primary w-full gap-2">
+                  <Share2 size={16} />Compartilhar meu treino
+                </button>
+                <p className="text-xs text-outline leading-snug px-2">Para fundo transparente, use Compartilhar.</p>
+                <button onClick={() => router.push('/treino')} className="btn-ghost w-full text-sm text-outline">Continuar</button>
+              </div>
+            </div>
+          )
+        })()}
+
       </div>
     </div>
   )
