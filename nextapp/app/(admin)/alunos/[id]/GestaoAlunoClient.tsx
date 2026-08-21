@@ -769,6 +769,8 @@ export function GestaoAlunoClient({
         return `Repetições parciais: últimas ${params.reps || '4'} reps em ¾ do movimento`
       case 'descanso_especifico':
         return `Descanso específico: ${params.seg || '90'}s entre séries`
+      case 'progressao_carga':
+        return 'Aumente a carga e descanso conforme o número de repetições diminui.\nDescansar 60s/120s/180s\nExemplo:\n1ª Série: 15 reps - 50kg\n2ª Série: 12 reps - 70kg\n3ª Série: 10 reps - 100kg'
       default:
         return ''
     }
@@ -2185,11 +2187,20 @@ ${s.sessao_itens.map((item, i) => `
                                           const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
                                           if (techMethods.includes(m)) {
                                             setEditItemObs(applyMetodoTemplate(m, {}))
+                                          } else if (m === 'progressao_carga') {
+                                            const hasData = editItemPeriod.some(p => p.series || p.repeticoes)
+                                            if (hasData && !window.confirm('Aplicar Progressão de Carga vai substituir séries, repetições e intervalo deste exercício em todas as semanas. Continuar?')) {
+                                              setEditItemMetodo(''); return
+                                            }
+                                            setEditItemPeriod(prev => prev.map(p => ({ ...p, series: '4', repeticoes: '15/12/10/8' })))
+                                            setEditItemDescanso('60')
+                                            setEditItemObs(applyMetodoTemplate('progressao_carga', {}))
                                           }
                                         }}
                                       >
                                         <option value="">— Nenhum —</option>
                                         <optgroup label="Métodos Estruturais">
+                                          <option value="progressao_carga">Progressão de Carga</option>
                                           <option value="cluster_set">Cluster Set</option>
                                           <option value="rest_pause">Rest Pause</option>
                                           <option value="drop_set">Drop Set</option>
