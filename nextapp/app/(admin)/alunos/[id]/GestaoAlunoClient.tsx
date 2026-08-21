@@ -2193,7 +2193,7 @@ ${s.sessao_itens.map((item, i) => `
                                               setEditItemMetodo(''); return
                                             }
                                             setEditItemPeriod(prev => prev.map(p => ({ ...p, series: '4', repeticoes: '15/12/10/8' })))
-                                            setEditItemDescanso('60')
+                                            setEditItemDescanso('120')
                                             setEditItemObs(applyMetodoTemplate('progressao_carga', {}))
                                           }
                                         }}
@@ -2471,12 +2471,26 @@ ${s.sessao_itens.map((item, i) => `
                                           onChange={e => {
                                             const m = e.target.value
                                             const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
-                                            const obs = techMethods.includes(m) ? applyMetodoTemplate(m, {}) : item.observacoes
-                                            updateItemMetodo(item.key, m, {}, obs)
+                                            if (m === 'progressao_carga') {
+                                              const hasData = item.periodizacao.some(p => p.series || p.repeticoes)
+                                              if (hasData && !window.confirm('Aplicar Progressão de Carga vai substituir séries, repetições e intervalo deste exercício em todas as semanas. Continuar?')) return
+                                              setSessaoItens(prev => prev.map(i => i.key !== item.key ? i : {
+                                                ...i,
+                                                metodo: 'progressao_carga',
+                                                metodo_params: {},
+                                                descanso_seg: '120',
+                                                observacoes: applyMetodoTemplate('progressao_carga', {}),
+                                                periodizacao: i.periodizacao.map(p => ({ ...p, series: '4', repeticoes: '15/12/10/8' })),
+                                              }))
+                                            } else {
+                                              const obs = techMethods.includes(m) ? applyMetodoTemplate(m, {}) : item.observacoes
+                                              updateItemMetodo(item.key, m, {}, obs)
+                                            }
                                           }}
                                         >
                                           <option value="">— Nenhum —</option>
                                           <optgroup label="Métodos Estruturais">
+                                            <option value="progressao_carga">Progressão de Carga</option>
                                             <option value="cluster_set">Cluster Set</option>
                                             <option value="rest_pause">Rest Pause</option>
                                             <option value="drop_set">Drop Set</option>
