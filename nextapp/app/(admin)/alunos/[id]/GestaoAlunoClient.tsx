@@ -286,6 +286,7 @@ export function GestaoAlunoClient({
   const [searchEx, setSearchEx] = useState('')
   const [grupoFilter, setGrupoFilter] = useState('')
   const [savingDia, setSavingDia] = useState(false)
+  const [saveDiaError, setSaveDiaError] = useState('')
   const [reordering, setReordering] = useState(false)
 
   // ── Anotações
@@ -952,6 +953,7 @@ export function GestaoAlunoClient({
   async function createSessaoDia() {
     if (!selectedRotina) return
     setSavingDia(true)
+    setSaveDiaError('')
     const nomeSessao = novaDia.nome || `Treino ${novaDia.dia_letra}`
     const nextOrdem = selectedRotina.sessoes_treino.length
 
@@ -969,38 +971,48 @@ export function GestaoAlunoClient({
       ordem: nextOrdem,
     }).select('*, sessao_itens(*)').single()
 
-    if (!error && sessao) {
-      if (sessaoItens.length > 0 && tab !== 1 && novaDia.tipo !== 'aerobico') {
-        await supabase.from('sessao_itens').insert(sessaoItens.map((it, idx) => ({
-          sessao_id: sessao.id,
-          exercicio_id: it.exercicio_id,
-          ordem: idx + 1,
-          series: parseInt(it.periodizacao[0]?.series) || null,
-          repeticoes: it.periodizacao[0]?.repeticoes || null,
-          carga_kg: parseFloat(it.periodizacao[0]?.carga_kg) || null,
-          descanso_seg: parseInt(it.descanso_seg) || null,
-          observacoes: it.observacoes || null,
-          periodizacao_semanal: it.periodizacao,
-          ...(it.metodo ? { metodo: it.metodo, metodo_params: Object.keys(it.metodo_params).length > 0 ? it.metodo_params : null } : {}),
-        })))
-      }
-      // Refresh selected rotina from DB
-      const { data: updated } = await supabase
-        .from('ciclos')
-        .select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
-        .eq('id', selectedRotina.id)
-        .single()
-      if (updated) {
-        const updatedRotina = updated as unknown as Rotina
-        setSelectedRotina(updatedRotina)
-        setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updatedRotina : c))
-      }
-      setNovaDia({ nome: '', dia_letra: 'A', dia_semana_numero: '', tipo: 'musculacao', orientacoes_aluno: '', descricao_aerobico: '', tipo_aerobico: '' })
-      setSessaoItens([])
-      setSearchEx('')
-      setRotinaSubTab(1)
+    if (error || !sessao) {
+      setSaveDiaError(`Erro ao criar treino: ${error?.message ?? 'resposta vazia'}`)
+      setSavingDia(false)
+      return
     }
+
+    if (sessaoItens.length > 0 && tab !== 1 && novaDia.tipo !== 'aerobico') {
+      const { error: itemsError } = await supabase.from('sessao_itens').insert(sessaoItens.map((it, idx) => ({
+        sessao_id: sessao.id,
+        exercicio_id: it.exercicio_id,
+        ordem: idx + 1,
+        series: parseInt(it.periodizacao[0]?.series) || null,
+        repeticoes: it.periodizacao[0]?.repeticoes || null,
+        carga_kg: parseFloat(it.periodizacao[0]?.carga_kg) || null,
+        descanso_seg: parseInt(it.descanso_seg) || null,
+        observacoes: it.observacoes || null,
+        periodizacao_semanal: it.periodizacao,
+        ...(it.metodo ? { metodo: it.metodo, metodo_params: Object.keys(it.metodo_params ?? {}).length > 0 ? it.metodo_params : null } : {}),
+      })))
+      if (itemsError) {
+        setSaveDiaError(`Treino criado, mas erro ao salvar exercícios: ${itemsError.message}`)
+        setSavingDia(false)
+        return
+      }
+    }
+
+    // Refresh selected rotina from DB
+    const { data: updated } = await supabase
+      .from('ciclos')
+      .select('*, sessoes_treino(*, sessao_itens(*, exercicio:exercicios(id, nome, grupo_muscular, video_url)))')
+      .eq('id', selectedRotina.id)
+      .single()
+    if (updated) {
+      const updatedRotina = updated as unknown as Rotina
+      setSelectedRotina(updatedRotina)
+      setCiclosList(prev => prev.map(c => c.id === selectedRotina.id ? updatedRotina : c))
+    }
+    setNovaDia({ nome: '', dia_letra: 'A', dia_semana_numero: '', tipo: 'musculacao', orientacoes_aluno: '', descricao_aerobico: '', tipo_aerobico: '' })
+    setSessaoItens([])
+    setSearchEx('')
     setSavingDia(false)
+    setRotinaSubTab(1)
   }
 
   async function saveNota() {
@@ -2635,6 +2647,9 @@ ${s.sessao_itens.map((item, i) => `
                     </div>
                   )}
 
+                  {saveDiaError && (
+                    <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mt-3">{saveDiaError}</p>
+                  )}
                   <div className="flex gap-3 mt-4">
                     <button
                       onClick={createSessaoDia}
