@@ -34,6 +34,11 @@ const FILTER_KEY = 'mc_admin_filter_v2'
 type StatusFilter = 'ativo' | 'inativo' | 'arquivado'
 type Preset = 'todos' | 'em_risco' | 'termina_mes'
 
+function normalizeStr(s: string) {
+  // eslint-disable-next-line no-misleading-character-class
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
 export function AlunosList({ alunos }: { alunos: AlunoItem[] }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ativo')
@@ -64,11 +69,11 @@ export function AlunosList({ alunos }: { alunos: AlunoItem[] }) {
     if (preset === 'em_risco' && !(aderencia < 70 && aderencia > 0)) return false
     if (preset === 'termina_mes' && !a.data_renovacao?.startsWith(mesAtual)) return false
     if (search) {
-      const q = search.toLowerCase()
-      return a.usuario?.nome.toLowerCase().includes(q) || a.usuario?.email.toLowerCase().includes(q)
+      const q = normalizeStr(search)
+      return normalizeStr(a.usuario?.nome ?? '').includes(q) || normalizeStr(a.usuario?.email ?? '').includes(q)
     }
     return true
-  })
+  }).sort((a, b) => (a.usuario?.nome ?? '').localeCompare(b.usuario?.nome ?? '', 'pt-BR', { sensitivity: 'base' }))
 
   const counts = {
     ativo: alunos.filter(a => (a.status ?? 'ativo') === 'ativo').length,

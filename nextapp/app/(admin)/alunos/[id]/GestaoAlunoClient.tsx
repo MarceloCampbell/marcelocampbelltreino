@@ -11,6 +11,12 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
+// ─── Utils ───────────────────────────────────────────────────────────────────
+function normalizeStr(s: string) {
+  // eslint-disable-next-line no-misleading-character-class
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type SessaoItem = {
@@ -617,11 +623,13 @@ export function GestaoAlunoClient({
       carga_kg: parseFloat(editItemPeriod[0]?.carga_kg) || null,
       descanso_seg: parseInt(editItemDescanso) || null,
       observacoes: editItemObs || null,
-      metodo: editItemMetodo || null,
-      metodo_params: Object.keys(editItemMetodoParams).length > 0 ? editItemMetodoParams : null,
       periodizacao_semanal: editItemPeriod,
     }
     if (editItemExId) updates.exercicio_id = editItemExId
+    if (editItemMetodo) {
+      updates.metodo = editItemMetodo
+      updates.metodo_params = Object.keys(editItemMetodoParams).length > 0 ? editItemMetodoParams : null
+    }
     await supabase.from('sessao_itens').update(updates).eq('id', itemId)
     // refresh rotina
     const { data: updated } = await supabase
@@ -972,9 +980,8 @@ export function GestaoAlunoClient({
           carga_kg: parseFloat(it.periodizacao[0]?.carga_kg) || null,
           descanso_seg: parseInt(it.descanso_seg) || null,
           observacoes: it.observacoes || null,
-          metodo: it.metodo || null,
-          metodo_params: Object.keys(it.metodo_params).length > 0 ? it.metodo_params : null,
           periodizacao_semanal: it.periodizacao,
+          ...(it.metodo ? { metodo: it.metodo, metodo_params: Object.keys(it.metodo_params).length > 0 ? it.metodo_params : null } : {}),
         })))
       }
       // Refresh selected rotina from DB
@@ -1147,10 +1154,9 @@ export function GestaoAlunoClient({
             carga_kg: item.carga_kg,
             descanso_seg: item.descanso_seg,
             observacoes: item.observacoes,
-            metodo: item.metodo || null,
-            metodo_params: item.metodo_params || null,
             periodizacao_semanal: item.periodizacao_semanal,
             biset_grupo: item.biset_grupo,
+            ...(item.metodo ? { metodo: item.metodo, metodo_params: item.metodo_params || null } : {}),
           }))
         )
       }
@@ -1340,12 +1346,12 @@ ${s.sessao_itens.map((item, i) => `
 
   const exFiltrados = exerciciosBiblioteca.filter(e =>
     (!grupoFilter || e.grupo_muscular === grupoFilter) &&
-    (!searchEx || e.nome.toLowerCase().includes(searchEx.toLowerCase()))
+    (!searchEx || normalizeStr(e.nome).includes(normalizeStr(searchEx)))
   )
 
   const exFiltradosAdd = exerciciosBiblioteca.filter(e =>
     (!addExGrupo || e.grupo_muscular === addExGrupo) &&
-    (!addExSearch || e.nome.toLowerCase().includes(addExSearch.toLowerCase()))
+    (!addExSearch || normalizeStr(e.nome).includes(normalizeStr(addExSearch)))
   )
 
   // Next available letter suggestion
