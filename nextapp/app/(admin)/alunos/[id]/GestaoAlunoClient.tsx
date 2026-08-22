@@ -754,21 +754,23 @@ export function GestaoAlunoClient({
   function applyMetodoTemplate(metodo: string, params: Record<string, string>): string {
     switch (metodo) {
       case 'cluster_set':
-        return `Cluster Set: ${params.blocos || '?'} blocos × ${params.reps_bloco || '?'} reps | Descanso entre blocos: ${params.descanso || '?'}s`
+        return `Cluster Set: Realizar 1 série de ${params.blocos || '?'} blocos parcelados em ${params.reps_bloco || '?'} reps, totalizando ${params.blocos && params.reps_bloco ? Number(params.blocos) * Number(params.reps_bloco) : '?'} repetições | Descanso entre blocos: ${params.descanso || '?'}s`
       case 'rest_pause':
-        return `Rest Pause: ${params.r1 || '?'} + ${params.r2 || '?'} + ${params.r3 || '?'} reps | Descanso: ${params.descanso || '?'}s`
+        return `Na última série faça o Rest Pause: ${params.r1 || '?'} descansa ${params.descanso || '?'}s + ${params.r2 || '?'} + ${params.r3 || '?'} reps | Descanso: ${params.descanso || '?'}s`
       case 'drop_set':
-        return `Drop Set: reduzir ${params.pct || '?'}% de carga até a falha`
+        return `Na última série Drop Set: Faça as repetições estabelecidas da série e reduza ${params.pct || '?'}% da carga e realize repetições até a falha`
       case 'back_off_set':
-        return `Back Off Set: −${params.pct || '?'}% de carga na série extra | Descanso extra: ${params.descanso || '?'}s`
+        return `Na última série Back Off Set: Faça as repetições estabelecidas da série, descanse ${params.descanso || '?'}s, reduza ${params.pct || '?'}% da carga e realize repetições até a falha | Descanso extra: ${params.descanso || '?'}s`
       case 'pausa_excentrica':
         return `Pausa excêntrica: ${params.seg || '3'}s no ponto de maior tensão`
       case 'pico_contracao':
         return `Pico de contração: ${params.seg || '2'}s de pausa no topo do movimento`
       case 'reps_parciais':
-        return `Repetições parciais: últimas ${params.reps || '4'} reps em ¾ do movimento`
+        return `Repetições parciais: Dentro da última série, nas últimas ${params.reps || '4'} reps realize o movimento parcial.`
       case 'descanso_especifico':
         return `Descanso específico: ${params.seg || '90'}s entre séries`
+      case 'unilateral':
+        return 'Descanse 30 a 45s entre o 1° e 2° lado. Ao terminar o 2° lado descanse 90s'
       case 'progressao_carga':
         return 'Aumente a carga e descanso conforme o número de repetições diminui.\nDescansar 60s/120s/180s\nExemplo:\n1ª Série: 15 reps - 50kg\n2ª Série: 12 reps - 70kg\n3ª Série: 10 reps - 100kg'
       default:
@@ -2184,7 +2186,9 @@ ${s.sessao_itens.map((item, i) => `
                                           const m = e.target.value
                                           setEditItemMetodo(m)
                                           setEditItemMetodoParams({})
-                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
+                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico', 'unilateral']
+                                          const seriesMap: Record<string, string> = { series_2: '2', series_3: '3', series_4: '4' }
+                                          const repsMap: Record<string, string> = { reps_10: '10', reps_12: '12', reps_15: '15', reps_20: '20' }
                                           if (techMethods.includes(m)) {
                                             setEditItemObs(applyMetodoTemplate(m, {}))
                                           } else if (m === 'progressao_carga') {
@@ -2195,6 +2199,16 @@ ${s.sessao_itens.map((item, i) => `
                                             setEditItemPeriod(prev => prev.map(p => ({ ...p, series: '4', repeticoes: '15/12/10/8' })))
                                             setEditItemDescanso('120')
                                             setEditItemObs(applyMetodoTemplate('progressao_carga', {}))
+                                          } else if (seriesMap[m]) {
+                                            const n = seriesMap[m]
+                                            if (!window.confirm(`Alterar séries para ${n} em todas as semanas. Continuar?`)) { setEditItemMetodo(''); return }
+                                            setEditItemPeriod(prev => prev.map(p => ({ ...p, series: n })))
+                                            setEditItemMetodo('')
+                                          } else if (repsMap[m]) {
+                                            const n = repsMap[m]
+                                            if (!window.confirm(`Alterar repetições para ${n} em todas as semanas. Continuar?`)) { setEditItemMetodo(''); return }
+                                            setEditItemPeriod(prev => prev.map(p => ({ ...p, repeticoes: n })))
+                                            setEditItemMetodo('')
                                           }
                                         }}
                                       >
@@ -2211,6 +2225,18 @@ ${s.sessao_itens.map((item, i) => `
                                           <option value="pico_contracao">Pico de Contração</option>
                                           <option value="reps_parciais">Repetições Parciais</option>
                                           <option value="descanso_especifico">Descanso Específico</option>
+                                          <option value="unilateral">Unilateral</option>
+                                        </optgroup>
+                                        <optgroup label="Alterar Séries">
+                                          <option value="series_2">2 Séries</option>
+                                          <option value="series_3">3 Séries</option>
+                                          <option value="series_4">4 Séries</option>
+                                        </optgroup>
+                                        <optgroup label="Alterar Repetições">
+                                          <option value="reps_10">10 Repetições</option>
+                                          <option value="reps_12">12 Repetições</option>
+                                          <option value="reps_15">15 Repetições</option>
+                                          <option value="reps_20">20 Repetições</option>
                                         </optgroup>
                                       </select>
 
@@ -2470,7 +2496,9 @@ ${s.sessao_itens.map((item, i) => `
                                           value={item.metodo}
                                           onChange={e => {
                                             const m = e.target.value
-                                            const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico']
+                                            const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico', 'unilateral']
+                                            const seriesMap: Record<string, string> = { series_2: '2', series_3: '3', series_4: '4' }
+                                            const repsMap: Record<string, string> = { reps_10: '10', reps_12: '12', reps_15: '15', reps_20: '20' }
                                             if (m === 'progressao_carga') {
                                               const hasData = item.periodizacao.some(p => p.series || p.repeticoes)
                                               if (hasData && !window.confirm('Aplicar Progressão de Carga vai substituir séries, repetições e intervalo deste exercício em todas as semanas. Continuar?')) return
@@ -2481,6 +2509,22 @@ ${s.sessao_itens.map((item, i) => `
                                                 descanso_seg: '120',
                                                 observacoes: applyMetodoTemplate('progressao_carga', {}),
                                                 periodizacao: i.periodizacao.map(p => ({ ...p, series: '4', repeticoes: '15/12/10/8' })),
+                                              }))
+                                            } else if (seriesMap[m]) {
+                                              const n = seriesMap[m]
+                                              if (!window.confirm(`Alterar séries para ${n} em todas as semanas. Continuar?`)) return
+                                              setSessaoItens(prev => prev.map(i => i.key !== item.key ? i : {
+                                                ...i,
+                                                metodo: '',
+                                                periodizacao: i.periodizacao.map(p => ({ ...p, series: n })),
+                                              }))
+                                            } else if (repsMap[m]) {
+                                              const n = repsMap[m]
+                                              if (!window.confirm(`Alterar repetições para ${n} em todas as semanas. Continuar?`)) return
+                                              setSessaoItens(prev => prev.map(i => i.key !== item.key ? i : {
+                                                ...i,
+                                                metodo: '',
+                                                periodizacao: i.periodizacao.map(p => ({ ...p, repeticoes: n })),
                                               }))
                                             } else {
                                               const obs = techMethods.includes(m) ? applyMetodoTemplate(m, {}) : item.observacoes
@@ -2501,6 +2545,18 @@ ${s.sessao_itens.map((item, i) => `
                                             <option value="pico_contracao">Pico de Contração</option>
                                             <option value="reps_parciais">Repetições Parciais</option>
                                             <option value="descanso_especifico">Descanso Específico</option>
+                                            <option value="unilateral">Unilateral</option>
+                                          </optgroup>
+                                          <optgroup label="Alterar Séries">
+                                            <option value="series_2">2 Séries</option>
+                                            <option value="series_3">3 Séries</option>
+                                            <option value="series_4">4 Séries</option>
+                                          </optgroup>
+                                          <optgroup label="Alterar Repetições">
+                                            <option value="reps_10">10 Repetições</option>
+                                            <option value="reps_12">12 Repetições</option>
+                                            <option value="reps_15">15 Repetições</option>
+                                            <option value="reps_20">20 Repetições</option>
                                           </optgroup>
                                         </select>
                                       </td>
