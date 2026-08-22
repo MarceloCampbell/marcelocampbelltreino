@@ -22,6 +22,8 @@ type SessaoItem = {
   descanso_seg: number | null
   periodizacao_semanal: any
   observacoes: string | null
+  metodo: string | null
+  metodo_params: Record<string, string> | null
   biset_grupo: string | null
   exercicio: { id: string; nome: string; grupo_muscular: string; video_url: string | null } | null
 }
@@ -603,8 +605,8 @@ export function GestaoAlunoClient({
     setEditItemExId(item.exercicio?.id ?? '')
     setEditItemExNome(item.exercicio?.nome ?? '')
     setEditItemExSearch('')
-    setEditItemMetodo('')
-    setEditItemMetodoParams({})
+    setEditItemMetodo(item.metodo ?? '')
+    setEditItemMetodoParams(item.metodo_params ?? {})
   }
 
   async function saveEditItem(sessaoId: string, itemId: string) {
@@ -615,6 +617,8 @@ export function GestaoAlunoClient({
       carga_kg: parseFloat(editItemPeriod[0]?.carga_kg) || null,
       descanso_seg: parseInt(editItemDescanso) || null,
       observacoes: editItemObs || null,
+      metodo: editItemMetodo || null,
+      metodo_params: Object.keys(editItemMetodoParams).length > 0 ? editItemMetodoParams : null,
       periodizacao_semanal: editItemPeriod,
     }
     if (editItemExId) updates.exercicio_id = editItemExId
@@ -968,6 +972,8 @@ export function GestaoAlunoClient({
           carga_kg: parseFloat(it.periodizacao[0]?.carga_kg) || null,
           descanso_seg: parseInt(it.descanso_seg) || null,
           observacoes: it.observacoes || null,
+          metodo: it.metodo || null,
+          metodo_params: Object.keys(it.metodo_params).length > 0 ? it.metodo_params : null,
           periodizacao_semanal: it.periodizacao,
         })))
       }
@@ -1141,6 +1147,8 @@ export function GestaoAlunoClient({
             carga_kg: item.carga_kg,
             descanso_seg: item.descanso_seg,
             observacoes: item.observacoes,
+            metodo: item.metodo || null,
+            metodo_params: item.metodo_params || null,
             periodizacao_semanal: item.periodizacao_semanal,
             biset_grupo: item.biset_grupo,
           }))
@@ -2186,11 +2194,18 @@ ${s.sessao_itens.map((item, i) => `
                                           const m = e.target.value
                                           setEditItemMetodo(m)
                                           setEditItemMetodoParams({})
-                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico', 'unilateral']
+                                          const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais']
                                           const seriesMap: Record<string, string> = { series_2: '2', series_3: '3', series_4: '4' }
                                           const repsMap: Record<string, string> = { reps_10: '10', reps_12: '12', reps_15: '15', reps_20: '20' }
                                           if (techMethods.includes(m)) {
                                             setEditItemObs(applyMetodoTemplate(m, {}))
+                                          } else if (m === 'unilateral') {
+                                            const hasData = editItemPeriod.some(p => p.repeticoes)
+                                            if (hasData && !window.confirm('Unilateral vai alterar as repetições para 10 em todas as semanas. Continuar?')) {
+                                              setEditItemMetodo(''); return
+                                            }
+                                            setEditItemPeriod(prev => prev.map(p => ({ ...p, repeticoes: '10' })))
+                                            setEditItemObs(applyMetodoTemplate('unilateral', {}))
                                           } else if (m === 'progressao_carga') {
                                             const hasData = editItemPeriod.some(p => p.series || p.repeticoes)
                                             if (hasData && !window.confirm('Aplicar Progressão de Carga vai substituir séries, repetições e intervalo deste exercício em todas as semanas. Continuar?')) {
@@ -2224,7 +2239,6 @@ ${s.sessao_itens.map((item, i) => `
                                           <option value="pausa_excentrica">Pausa Excêntrica</option>
                                           <option value="pico_contracao">Pico de Contração</option>
                                           <option value="reps_parciais">Repetições Parciais</option>
-                                          <option value="descanso_especifico">Descanso Específico</option>
                                           <option value="unilateral">Unilateral</option>
                                         </optgroup>
                                         <optgroup label="Alterar Séries">
@@ -2274,11 +2288,11 @@ ${s.sessao_itens.map((item, i) => `
                                           )}
                                         </div>
                                       )}
-                                      {['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico'].includes(editItemMetodo) && (
+                                      {['pausa_excentrica', 'pico_contracao', 'reps_parciais'].includes(editItemMetodo) && (
                                         <div className="flex gap-2 mt-2 flex-wrap">
                                           <div className="flex flex-col gap-0.5">
                                             <span className="text-[10px] text-outline">{editItemMetodo === 'reps_parciais' ? 'Reps parciais' : 'Segundos'}</span>
-                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'] ?? ''} onChange={e => { const key = editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'; const p = { ...editItemMetodoParams, [key]: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate(editItemMetodo, p)) }} placeholder={editItemMetodo === 'pausa_excentrica' ? '3' : editItemMetodo === 'pico_contracao' ? '2' : editItemMetodo === 'reps_parciais' ? '4' : '90'} />
+                                            <input className="input text-xs py-0.5 w-20" value={editItemMetodoParams[editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'] ?? ''} onChange={e => { const key = editItemMetodo === 'reps_parciais' ? 'reps' : 'seg'; const p = { ...editItemMetodoParams, [key]: e.target.value }; setEditItemMetodoParams(p); setEditItemObs(applyMetodoTemplate(editItemMetodo, p)) }} placeholder={editItemMetodo === 'pausa_excentrica' ? '3' : editItemMetodo === 'pico_contracao' ? '2' : '4'} />
                                           </div>
                                         </div>
                                       )}
@@ -2496,10 +2510,20 @@ ${s.sessao_itens.map((item, i) => `
                                           value={item.metodo}
                                           onChange={e => {
                                             const m = e.target.value
-                                            const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais', 'descanso_especifico', 'unilateral']
+                                            const techMethods = ['pausa_excentrica', 'pico_contracao', 'reps_parciais']
                                             const seriesMap: Record<string, string> = { series_2: '2', series_3: '3', series_4: '4' }
                                             const repsMap: Record<string, string> = { reps_10: '10', reps_12: '12', reps_15: '15', reps_20: '20' }
-                                            if (m === 'progressao_carga') {
+                                            if (m === 'unilateral') {
+                                              const hasData = item.periodizacao.some(p => p.repeticoes)
+                                              if (hasData && !window.confirm('Unilateral vai alterar as repetições para 10 em todas as semanas. Continuar?')) return
+                                              setSessaoItens(prev => prev.map(i => i.key !== item.key ? i : {
+                                                ...i,
+                                                metodo: 'unilateral',
+                                                metodo_params: {},
+                                                observacoes: applyMetodoTemplate('unilateral', {}),
+                                                periodizacao: i.periodizacao.map(p => ({ ...p, repeticoes: '10' })),
+                                              }))
+                                            } else if (m === 'progressao_carga') {
                                               const hasData = item.periodizacao.some(p => p.series || p.repeticoes)
                                               if (hasData && !window.confirm('Aplicar Progressão de Carga vai substituir séries, repetições e intervalo deste exercício em todas as semanas. Continuar?')) return
                                               setSessaoItens(prev => prev.map(i => i.key !== item.key ? i : {
@@ -2544,7 +2568,6 @@ ${s.sessao_itens.map((item, i) => `
                                             <option value="pausa_excentrica">Pausa Excêntrica</option>
                                             <option value="pico_contracao">Pico de Contração</option>
                                             <option value="reps_parciais">Repetições Parciais</option>
-                                            <option value="descanso_especifico">Descanso Específico</option>
                                             <option value="unilateral">Unilateral</option>
                                           </optgroup>
                                           <optgroup label="Alterar Séries">
