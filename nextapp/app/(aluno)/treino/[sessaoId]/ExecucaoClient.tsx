@@ -75,8 +75,8 @@ function VideoThumb({ url, nome }: { url: string; nome: string }) {
     <button onClick={() => setPlaying(true)} className="relative w-full aspect-video rounded-xl overflow-hidden block hover:opacity-95 transition-opacity" title={`Ver: ${nome}`}>
       <img src={`https://img.youtube.com/vi/${vid}/hqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-lg">
-          <div className="w-0 h-0 border-t-[10px] border-b-[10px] border-l-[18px] border-t-transparent border-b-transparent border-l-white ml-1" />
+        <div className="w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-lg">
+          <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[9px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
         </div>
       </div>
     </button>
@@ -102,6 +102,8 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
   const [pausedAtMs, setPausedAtMs] = useState<number | null>(null)
   // Triggers re-render every second for timer display
   const [tick, setTick] = useState(0)
+  // Captures elapsed seconds when workout is finalized — freezes the timer
+  const [frozenSecs, setFrozenSecs] = useState<number | null>(null)
 
   // Timer: computed from timestamps, never drifts
   const sessionSecs = pausedAtMs !== null && sessionStartTime !== null
@@ -109,6 +111,9 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
     : sessionStartTime !== null
       ? Math.floor((Date.now() - sessionStartTime) / 1000)
       : 0
+
+  // Displayed time: frozen after completion so timer stops visually
+  const displaySecs = frozenSecs ?? sessionSecs
 
   const isPaused = pausedAtMs !== null
 
@@ -145,12 +150,12 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
 
   // ── Effects ────────────────────────────────────────────────────────────────
 
-  // Tick every second while running
+  // Tick every second while running (stops when frozen after completion)
   useEffect(() => {
-    if (isPaused || !sessionStartTime) return
+    if (isPaused || !sessionStartTime || frozenSecs !== null) return
     const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
-  }, [isPaused, sessionStartTime])
+  }, [isPaused, sessionStartTime, frozenSecs])
 
   // Rest timer countdown
   useEffect(() => {
@@ -162,7 +167,34 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
   // Session init: check for existing in-progress session, restore state
   useEffect(() => {
     async function initSession() {
-      // Check for existing session
+      // Determine start of the current cycle week so completion resets weekly
+      const weekStart = (() => {
+        if (!ciclo?.data_inicio) return null
+        const inicio = new Date(ciclo.data_inicio + 'T00:00')
+        const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+        const days = Math.floor((hoje.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24))
+        const weekNum = Math.max(0, Math.floor(days / 7))
+        return new Date(inicio.getTime() + weekNum * 7 * 24 * 60 * 60 * 1000).toISOString()
+      })()
+
+      // Check if already completed this week — if not, allow re-execution
+      if (sessao.status === 'realizado' && weekStart) {
+        const { data: doneThisWeek } = await (supabase as any)
+          .from('workout_sessions')
+          .select('id')
+          .eq('aluno_id', alunoId)
+          .eq('sessao_id', sessao.id)
+          .in('status', ['concluido', 'incompleto'])
+          .gte('concluido_em', weekStart)
+          .limit(1)
+          .maybeSingle()
+        if (!doneThisWeek) {
+          // Previous week's completion — allow fresh start this week
+          setIsRealizado(false)
+        }
+      }
+
+      // Check for existing in-progress session
       const { data: existing } = await (supabase as any)
         .from('workout_sessions')
         .select('*')
@@ -301,9 +333,6 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
     })
     if (allDone) {
       setExpandedDoneItems(prev => { const n = new Set(prev); n.delete(itemId); return n })
-    } else {
-      // If undoing a completed exercise, remove it from done
-      setExercisesDone(prev => { const s = new Set(prev); s.delete(itemId); return s })
     }
 
     persistSerie(itemId, serieNum, !wasDone, cargaRegistrada[itemId] ?? '')
@@ -388,13 +417,17 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
 
   async function finalizarTreino() {
     setCompleting(true); setActionError(null)
+    console.log('[finalizarTreino] iniciando — sessao.id:', sessao.id, 'workoutSessionId:', workoutSessionId)
     try {
+      console.log('[finalizarTreino] atualizando sessoes_treino...')
       const { error } = await supabase.from('sessoes_treino').update({ status: 'realizado' } as any).eq('id', sessao.id)
+      console.log('[finalizarTreino] sessoes_treino resultado:', { error })
       if (error) throw error
       setIsRealizado(true)
       const incomplete = itens.filter(i => !exercisesDone.has(i.id))
       if (workoutSessionId) {
-        await (supabase as any).from('workout_sessions').update({
+        console.log('[finalizarTreino] atualizando workout_sessions...')
+        const wsResult = await (supabase as any).from('workout_sessions').update({
           concluido_em: new Date().toISOString(),
           status: incomplete.length > 0 ? 'incompleto' : 'concluido',
           motivo_incompleto: incomplete.length > 0
@@ -403,10 +436,10 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
           pausado_em: null,
           elapsed_at_pause: null,
         }).eq('id', workoutSessionId)
+        console.log('[finalizarTreino] workout_sessions resultado:', wsResult)
         // set_executions already persisted incrementally; any remaining done items confirmed
         for (const item of itens) {
           if (!exercisesDone.has(item.id)) continue
-          const carga = parseFloat(cargaRegistrada[item.id]?.replace(',', '.') || '0') || null
           const totalSeries = item.series ?? 0
           if (totalSeries > 0) {
             for (let s = 1; s <= totalSeries; s++) {
@@ -414,9 +447,17 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
             }
           }
         }
+      } else {
+        console.warn('[finalizarTreino] workoutSessionId é null — sessão de treino não foi gravada no banco')
       }
+      // Freeze the timer so it stops ticking after completion
+      setFrozenSecs(sessionSecs)
       setShowIncompleteDialog(false); setShowFeedbackForm(true)
-    } catch { setActionError('Não conseguimos salvar. Tente novamente.') }
+    } catch (err) {
+      console.error('[finalizarTreino] erro:', err)
+      const msg = err instanceof Error ? err.message : String(err)
+      setActionError(`Não conseguimos salvar. ${msg}`)
+    }
     finally { setCompleting(false) }
   }
 
@@ -738,7 +779,7 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
               </button>
             ) : (
               <>
-                <p className="text-base font-bold tabular-nums leading-none text-green-700">{fmt(sessionSecs)}</p>
+                <p className="text-base font-bold tabular-nums leading-none text-green-700">{fmt(displaySecs)}</p>
                 <p className="text-[10px] text-green-600">em andamento</p>
               </>
             )}
@@ -877,7 +918,7 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
             <div className="text-center pb-2 border-b border-outline-variant">
               <p className="text-3xl mb-1">🏆</p>
               <p className="font-extrabold text-secondary text-lg">Treino concluído!</p>
-              <p className="text-sm text-outline mt-1">{fmt(sessionSecs)} · {exercisesDone.size}/{itens.length} exercícios · {calcVolume().toFixed(0)} kg volume</p>
+              <p className="text-sm text-outline mt-1">{fmt(displaySecs)} · {exercisesDone.size}/{itens.length} exercícios · {calcVolume().toFixed(0)} kg volume</p>
             </div>
             <h4 className="font-bold text-secondary">Como foi o treino?</h4>
             <div>
@@ -972,7 +1013,7 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
               )}
               <div className="grid grid-cols-3 gap-2 mb-6">
                 <div className="bg-background rounded-xl p-3 text-center">
-                  <p className="text-base font-extrabold text-primary tabular-nums">{fmt(sessionSecs)}</p>
+                  <p className="text-base font-extrabold text-primary tabular-nums">{fmt(displaySecs)}</p>
                   <p className="text-[10px] text-outline mt-0.5">Duração</p>
                 </div>
                 <div className="bg-background rounded-xl p-3 text-center">

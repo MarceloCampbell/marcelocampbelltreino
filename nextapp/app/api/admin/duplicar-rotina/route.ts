@@ -3,6 +3,26 @@ import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 
+function calcNumSemanas(inicio: string, fim: string): number {
+  const d1 = new Date(inicio), d2 = new Date(fim)
+  if (d2 <= d1) return 1
+  return Math.max(1, Math.ceil((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24 * 7)))
+}
+
+function resizePeriodizacao(original: any[], targetWeeks: number): any[] {
+  if (!original || original.length === 0) return Array.from({ length: targetWeeks }, (_, i) => ({ semana: i + 1 }))
+  if (original.length === targetWeeks) return original
+  if (original.length > targetWeeks) return original.slice(0, targetWeeks).map((p, i) => ({ ...p, semana: i + 1 }))
+  // Extend: repeat the last week's pattern for added weeks (carga is zeroed at item level)
+  const last = original[original.length - 1]
+  const extra = Array.from({ length: targetWeeks - original.length }, (_, i) => ({
+    ...last,
+    semana: original.length + i + 1,
+    carga_kg: null,
+  }))
+  return [...original.map((p, i) => ({ ...p, semana: i + 1 })), ...extra]
+}
+
 export async function POST(request: NextRequest) {
   const cookieStore = await cookies()
 
@@ -28,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ sucesso: false, erro: 'Não autorizado' }, { status: 403 })
 
   const body = await request.json().catch(() => null)
-  const { cicloId, targetAlunoId } = body ?? {}
+  const { cicloId, targetAlunoId, nome: nomeOverride, data_inicio: dataInicioOverride, data_fim: dataFimOverride } = body ?? {}
   if (!cicloId || !targetAlunoId)
     return NextResponse.json({ sucesso: false, erro: 'Parâmetros inválidos' }, { status: 400 })
 
@@ -48,16 +68,27 @@ export async function POST(request: NextRequest) {
   if (rotinaError || !rotina)
     return NextResponse.json({ sucesso: false, erro: 'Rotina não encontrada' }, { status: 404 })
 
+  const dataInicio = dataInicioOverride || rotina.data_inicio
+  const dataFim = dataFimOverride || rotina.data_fim
+
+  // Recalculate week count if dates changed
+  const originalWeeks = rotina.data_inicio && rotina.data_fim
+    ? calcNumSemanas(rotina.data_inicio, rotina.data_fim)
+    : null
+  const newWeeks = dataInicio && dataFim
+    ? calcNumSemanas(dataInicio, dataFim)
+    : originalWeeks
+
   // Create new ciclo for target aluno
   const { data: novo, error: cicloError } = await admin.from('ciclos').insert({
     aluno_id: targetAlunoId,
-    nome: rotina.nome,
+    nome: nomeOverride?.trim() || rotina.nome,
     status: 'planejado',
     tipo: rotina.tipo,
     objetivo: rotina.objetivo,
     orientacoes: rotina.orientacoes,
-    data_inicio: rotina.data_inicio,
-    data_fim: rotina.data_fim,
+    data_inicio: dataInicio,
+    data_fim: dataFim,
     visivel_antes_de_iniciar: rotina.visivel_antes_de_iniciar,
     ocultar_ao_vencer: rotina.ocultar_ao_vencer,
   }).select('id').single()
@@ -89,18 +120,30 @@ export async function POST(request: NextRequest) {
     if (!sessao.sessao_itens?.length) continue
 
     await admin.from('sessao_itens').insert(
-      sessao.sessao_itens.map((item: any) => ({
-        sessao_id: novaSessao.id,
-        exercicio_id: item.exercicio_id ?? null,
-        ordem: item.ordem,
-        series: item.series,
-        repeticoes: item.repeticoes,
-        carga_kg: item.carga_kg,
-        descanso_seg: item.descanso_seg,
-        observacoes: item.observacoes,
-        periodizacao_semanal: item.periodizacao_semanal,
-        biset_grupo: item.biset_grupo,
-      }))
+      sessao.sessao_itens.map((item: any) => {
+        const periodizacao = (newWeeks && newWeeks !== originalWeeks && item.periodizacao_semanal)
+          ? resizePeriodizacao(item.periodizacao_semanal, newWeeks)
+          : item.periodizacao_semanal
+
+        // Zero out cargas in the copy (original student's loads don't apply to new student)
+        const periodizacaoSemCarga = periodizacao
+          ? periodizacao.map((p: any) => ({ ...p, carga_kg: null }))
+          : periodizacao
+
+        return {
+          sessao_id: novaSessao.id,
+          exercicio_id: item.exercicio_id ?? null,
+          ordem: item.ordem,
+          series: item.series,
+          repeticoes: item.repeticoes,
+          carga_kg: null,
+          descanso_seg: item.descanso_seg,
+          observacoes: item.observacoes,
+          periodizacao_semanal: periodizacaoSemCarga,
+          biset_grupo: item.biset_grupo,
+          ...(item.metodo ? { metodo: item.metodo, metodo_params: item.metodo_params ?? null } : {}),
+        }
+      })
     )
   }
 

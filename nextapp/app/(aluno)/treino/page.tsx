@@ -25,6 +25,17 @@ export default async function TreinoAlunoPage() {
 
   const cicloId = cicloAtivoRes.data?.id
 
+  // Calculate start of the current cycle week for scoped completion check
+  const weekStart = (() => {
+    const dataInicio = cicloAtivoRes.data?.data_inicio
+    if (!dataInicio) return null
+    const inicio = new Date(dataInicio + 'T00:00')
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+    const days = Math.floor((hoje.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24))
+    const weekNum = Math.max(0, Math.floor(days / 7))
+    return new Date(inicio.getTime() + weekNum * 7 * 24 * 60 * 60 * 1000).toISOString()
+  })()
+
   const [sessoesRes, aerobicosRes] = await Promise.all([
     cicloId
       ? supabase
@@ -53,6 +64,20 @@ export default async function TreinoAlunoPage() {
       .limit(10),
   ])
 
+  // Fetch which sessions were completed in the current week (for weekly reset)
+  const sessaoIds = (sessoesRes.data ?? []).map((s: any) => s.id)
+  let completedThisWeekIds: string[] = []
+  if (sessaoIds.length > 0 && weekStart) {
+    const { data: doneThisWeek } = await (supabase as any)
+      .from('workout_sessions')
+      .select('sessao_id')
+      .eq('aluno_id', aluno.id)
+      .in('status', ['concluido', 'incompleto'])
+      .gte('concluido_em', weekStart)
+      .in('sessao_id', sessaoIds)
+    completedThisWeekIds = (doneThisWeek ?? []).map((r: any) => r.sessao_id)
+  }
+
   return (
     <>
       <Header title="Meu Treino" />
@@ -62,6 +87,7 @@ export default async function TreinoAlunoPage() {
           sessoes={sessoesRes.data ?? []}
           aerobicos={aerobicosRes.data ?? []}
           cicloAtivo={cicloAtivoRes.data ?? null}
+          completedThisWeekIds={completedThisWeekIds}
         />
       </div>
     </>

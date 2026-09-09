@@ -358,6 +358,9 @@ export function GestaoAlunoClient({
   const [duplicateSearch, setDuplicateSearch] = useState('')
   const [duplicateAlunoId, setDuplicateAlunoId] = useState('')
   const [duplicateAlunoNome, setDuplicateAlunoNome] = useState('')
+  const [duplicateNome, setDuplicateNome] = useState('')
+  const [duplicateDataInicio, setDuplicateDataInicio] = useState('')
+  const [duplicateDataFim, setDuplicateDataFim] = useState('')
   const [duplicateLoading, setDuplicateLoading] = useState(false)
   const [todosAlunos, setTodosAlunos] = useState<{ id: string; nome: string }[]>([])
   const [bulkInterval, setBulkInterval] = useState('')
@@ -1240,7 +1243,13 @@ export function GestaoAlunoClient({
       const res = await fetch('/api/admin/duplicar-rotina', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cicloId: selectedRotina.id, targetAlunoId: duplicateAlunoId }),
+        body: JSON.stringify({
+          cicloId: selectedRotina.id,
+          targetAlunoId: duplicateAlunoId,
+          nome: duplicateNome || undefined,
+          data_inicio: duplicateDataInicio || undefined,
+          data_fim: duplicateDataFim || undefined,
+        }),
       })
       const data = await res.json()
       if (!res.ok || !data.sucesso) {
@@ -1614,7 +1623,13 @@ ${s.sessao_itens.map((item, i) => `
                     {renovandoCiclo ? 'Copiando...' : 'Renovar ciclo'}
                   </button>
                   <button
-                    onClick={() => { setShowDuplicate(true); carregarTodosAlunos() }}
+                    onClick={() => {
+                      setShowDuplicate(true)
+                      setDuplicateNome(selectedRotina?.nome ?? '')
+                      setDuplicateDataInicio(selectedRotina?.data_inicio ?? '')
+                      setDuplicateDataFim(selectedRotina?.data_fim ?? '')
+                      carregarTodosAlunos()
+                    }}
                     className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-outline-variant text-secondary hover:bg-gray-50 transition-colors"
                     title="Copiar rotina para outro aluno"
                   >
@@ -3232,9 +3247,42 @@ ${s.sessao_itens.map((item, i) => `
               <h3 className="font-extrabold text-secondary">Duplicar Rotina para Aluno</h3>
               <button onClick={() => setShowDuplicate(false)} className="text-outline hover:text-secondary"><X size={20} /></button>
             </div>
-            <p className="text-sm text-outline mb-3">
-              Rotina: <span className="font-semibold text-secondary">{selectedRotina?.nome}</span>
-            </p>
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="label">Nome da rotina</label>
+                <input
+                  className="input"
+                  placeholder="Nome da rotina duplicada"
+                  value={duplicateNome}
+                  onChange={e => setDuplicateNome(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Data início</label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={duplicateDataInicio}
+                    onChange={e => setDuplicateDataInicio(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Data fim</label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={duplicateDataFim}
+                    onChange={e => setDuplicateDataFim(e.target.value)}
+                  />
+                </div>
+              </div>
+              {duplicateDataInicio && duplicateDataFim && (
+                <p className="text-xs text-outline">
+                  {calcDuracao(duplicateDataInicio, duplicateDataFim)} — cargas serão zeradas na cópia
+                </p>
+              )}
+            </div>
             <input
               className="input mb-3"
               placeholder="Buscar aluno por nome..."

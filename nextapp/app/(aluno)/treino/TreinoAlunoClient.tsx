@@ -87,10 +87,10 @@ function calcSemanaAtual(dataInicio: string | null, dataFim: string | null): { s
   return { semana: Math.min(semana, total), total }
 }
 
-function SessaoCard({ sessao, highlight }: { sessao: Sessao; highlight: boolean }) {
+function SessaoCard({ sessao, highlight, isCompletedThisWeek }: { sessao: Sessao; highlight: boolean; isCompletedThisWeek: boolean }) {
   const [isOpen, setIsOpen] = useState(highlight)
   const router = useRouter()
-  const isRealizado = sessao.status === 'realizado'
+  const isRealizado = isCompletedThisWeek
   const itens = [...(sessao.sessao_itens ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
 
   return (
@@ -163,11 +163,13 @@ export function TreinoAlunoClient({
   sessoes,
   aerobicos,
   cicloAtivo,
+  completedThisWeekIds,
 }: {
   nomeAluno: string
   sessoes: Sessao[]
   aerobicos: AerobicoBrief[]
   cicloAtivo: CicloAtivo
+  completedThisWeekIds: string[]
 }) {
   const { refreshing } = usePullToRefresh()
 
@@ -253,7 +255,7 @@ export function TreinoAlunoClient({
 
       {/* Treino de hoje */}
       {treinoHoje ? (
-        <SessaoCard sessao={treinoHoje} highlight={true} />
+        <SessaoCard sessao={treinoHoje} highlight={true} isCompletedThisWeek={completedThisWeekIds.includes(treinoHoje.id)} />
       ) : (
         <div className="bg-white rounded-2xl shadow-card p-8 text-center">
           <p className="text-5xl mb-4">🛌</p>

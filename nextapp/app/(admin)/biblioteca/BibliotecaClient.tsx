@@ -239,6 +239,15 @@ export function BibliotecaClient({ exercicios: initial, academias }: { exercicio
           form.academias_ids.map(aid => ({ exercicio_id: data.id, academia_id: aid, disponivel: true }))
         )
       }
+      // Create reverse substitute association automatically
+      if (form.exercicio_substituto_id) {
+        await supabase.from('exercicios')
+          .update({ exercicio_substituto_id: data.id })
+          .eq('id', form.exercicio_substituto_id)
+        setExercicios(prev => prev.map(e =>
+          e.id === form.exercicio_substituto_id ? { ...e, exercicio_substituto_id: data.id } : e
+        ))
+      }
       setExercicios(prev => [{ ...data, exercicio_academias: form.academias_ids.map(aid => ({ academia_id: aid })) }, ...prev])
       setForm(emptyForm())
       setShowForm(false)
@@ -269,6 +278,8 @@ export function BibliotecaClient({ exercicios: initial, academias }: { exercicio
   async function saveEdit(id: string) {
     if (!editForm.nome || !editForm.grupo_muscular) return
     setEditSaving(true)
+    const oldSubstitutoId = exercicios.find(e => e.id === id)?.exercicio_substituto_id ?? null
+    const newSubstitutoId = editForm.exercicio_substituto_id || null
     const { data } = await supabase.from('exercicios').update(toDbPayload(editForm)).eq('id', id).select().single()
     if (data) {
       await supabase.from('exercicio_academias').delete().eq('exercicio_id', id)
@@ -276,6 +287,30 @@ export function BibliotecaClient({ exercicios: initial, academias }: { exercicio
         await supabase.from('exercicio_academias').insert(
           editForm.academias_ids.map(aid => ({ exercicio_id: id, academia_id: aid, disponivel: true }))
         )
+      }
+      // Update bidirectional substitute associations
+      if (oldSubstitutoId !== newSubstitutoId) {
+        if (oldSubstitutoId) {
+          // Clear the old reverse link (only if it still points back at us)
+          await supabase.from('exercicios')
+            .update({ exercicio_substituto_id: null })
+            .eq('id', oldSubstitutoId)
+            .eq('exercicio_substituto_id', id)
+          setExercicios(prev => prev.map(e =>
+            e.id === oldSubstitutoId && e.exercicio_substituto_id === id
+              ? { ...e, exercicio_substituto_id: null }
+              : e
+          ))
+        }
+        if (newSubstitutoId) {
+          // Set the new reverse link
+          await supabase.from('exercicios')
+            .update({ exercicio_substituto_id: id })
+            .eq('id', newSubstitutoId)
+          setExercicios(prev => prev.map(e =>
+            e.id === newSubstitutoId ? { ...e, exercicio_substituto_id: id } : e
+          ))
+        }
       }
       setExercicios(prev => prev.map(e => e.id === id
         ? { ...e, ...data, exercicio_academias: editForm.academias_ids.map(aid => ({ academia_id: aid })) }
