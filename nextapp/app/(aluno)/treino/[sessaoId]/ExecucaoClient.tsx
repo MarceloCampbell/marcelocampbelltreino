@@ -75,8 +75,8 @@ function VideoThumb({ url, nome }: { url: string; nome: string }) {
     <button onClick={() => setPlaying(true)} className="relative w-full aspect-video rounded-xl overflow-hidden block hover:opacity-95 transition-opacity" title={`Ver: ${nome}`}>
       <img src={`https://img.youtube.com/vi/${vid}/hqdefault.jpg`} alt={nome} className="w-full h-full object-cover" loading="lazy" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="w-7 h-7 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-lg">
-          <div className="w-0 h-0 border-t-[5px] border-b-[5px] border-l-[9px] border-t-transparent border-b-transparent border-l-white ml-0.5" />
+        <div className="w-4 h-4 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center shadow-lg">
+          <div className="w-0 h-0 border-t-[3px] border-b-[3px] border-l-[5px] border-t-transparent border-b-transparent border-l-white ml-px" />
         </div>
       </div>
     </button>
@@ -88,6 +88,7 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
   const router = useRouter()
   const supabase = createClient()
   const shareCanvasRef = useRef<HTMLCanvasElement>(null)
+  const autoFinalizedRef = useRef(false)
 
   const itens = [...(sessao.sessao_itens ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
   const semana = ciclo ? calcSemana(ciclo.data_inicio) : null
@@ -141,7 +142,8 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
   const [incompleteReasons, setIncompleteReasons] = useState<Record<string, string>>({})
   const [showFeedbackForm, setShowFeedbackForm] = useState(false)
   const [showCelebration, setShowCelebration] = useState(false)
-  const [isRealizado, setIsRealizado] = useState(sessao.status === 'realizado')
+  // Always start as false — initSession() will check workout_sessions for this week
+  const [isRealizado, setIsRealizado] = useState(false)
   const [feedbackForm, setFeedbackForm] = useState<FeedbackForm>({
     energia: 5, progressoCarga: '', exercicioDificil: '', melhorMomento: '',
     sentiu_dor: false, descricao_dor: '', obstaculos: '', pergunta: '', pesoAtual: '',
@@ -156,6 +158,17 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
     const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
   }, [isPaused, sessionStartTime, frozenSecs])
+
+  // Auto-finalize after 120 minutes to prevent runaway sessions
+  useEffect(() => {
+    if (autoFinalizedRef.current) return
+    if (frozenSecs !== null || showFeedbackForm || showCelebration || loading) return
+    if (!sessionStartTime || isPaused) return
+    if (sessionSecs >= 7200) {
+      autoFinalizedRef.current = true
+      finalizarTreino()
+    }
+  }, [sessionSecs]) // eslint-disable-line
 
   // Rest timer countdown
   useEffect(() => {
@@ -177,8 +190,8 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
         return new Date(inicio.getTime() + weekNum * 7 * 24 * 60 * 60 * 1000).toISOString()
       })()
 
-      // Check if already completed this week — if not, allow re-execution
-      if (sessao.status === 'realizado' && weekStart) {
+      // Check if already completed this week — drives the "Finalizar Treino" button visibility
+      if (weekStart) {
         const { data: doneThisWeek } = await (supabase as any)
           .from('workout_sessions')
           .select('id')
@@ -188,10 +201,7 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
           .gte('concluido_em', weekStart)
           .limit(1)
           .maybeSingle()
-        if (!doneThisWeek) {
-          // Previous week's completion — allow fresh start this week
-          setIsRealizado(false)
-        }
+        setIsRealizado(!!doneThisWeek)
       }
 
       // Check for existing in-progress session
@@ -205,51 +215,69 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
         .limit(1)
         .maybeSingle()
 
+      // Abandon stale sessions from previous days to avoid resuming old timers/sets
+      let freshSession = true
       if (existing) {
-        setWorkoutSessionId(existing.id)
-        const startMs = new Date(existing.iniciado_em).getTime()
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+        const startedAt = new Date(existing.iniciado_em)
+        if (startedAt >= todayStart) {
+          // Started today — check if 120+ min elapsed (auto-expire)
+          const elapsedMs = existing.pausado_em
+            ? new Date(existing.pausado_em).getTime() - startedAt.getTime()
+            : Date.now() - startedAt.getTime()
+          if (elapsedMs >= 120 * 60 * 1000) {
+            // Session expired (120 min) — close and start fresh
+            await (supabase as any).from('workout_sessions')
+              .update({ status: 'incompleto', concluido_em: new Date().toISOString() })
+              .eq('id', existing.id)
+          } else {
+          // Resume it
+          freshSession = false
+          setWorkoutSessionId(existing.id)
+          const startMs = startedAt.getTime()
 
-        if (existing.pausado_em) {
-          // Was paused: timer frozen at elapsed_at_pause
-          setPausedAtMs(new Date(existing.pausado_em).getTime())
-          setSessionStartTime(startMs)
-        } else {
-          // Running: timer runs from iniciado_em
-          setSessionStartTime(startMs)
-        }
-
-        // Restore carga from JSON
-        if (existing.carga_json) {
-          setCargaRegistrada(existing.carga_json as Record<string, string>)
-        }
-
-        // Restore series state from set_executions
-        const { data: sets } = await (supabase as any)
-          .from('set_executions')
-          .select('sessao_item_id, numero_serie, concluida, carga_registrada')
-          .eq('session_id', existing.id)
-
-        if (sets && sets.length > 0) {
-          const newSeriesDone: Record<string, Set<number>> = {}
-          const newExercisesDone = new Set<string>()
-
-          for (const s of sets as any[]) {
-            if (!newSeriesDone[s.sessao_item_id]) newSeriesDone[s.sessao_item_id] = new Set()
-            if (s.concluida) newSeriesDone[s.sessao_item_id].add(s.numero_serie)
+          if (existing.pausado_em) {
+            setPausedAtMs(new Date(existing.pausado_em).getTime())
+            setSessionStartTime(startMs)
+          } else {
+            setSessionStartTime(startMs)
           }
 
-          for (const item of itens) {
-            const totalSeries = item.series ?? 0
-            if (totalSeries > 0 && newSeriesDone[item.id]?.size === totalSeries) {
-              newExercisesDone.add(item.id)
+          if (existing.carga_json) {
+            setCargaRegistrada(existing.carga_json as Record<string, string>)
+          }
+
+          const { data: sets } = await (supabase as any)
+            .from('set_executions')
+            .select('sessao_item_id, numero_serie, concluida, carga_registrada')
+            .eq('session_id', existing.id)
+
+          if (sets && sets.length > 0) {
+            const newSeriesDone: Record<string, Set<number>> = {}
+            const newExercisesDone = new Set<string>()
+            for (const s of sets as any[]) {
+              if (!newSeriesDone[s.sessao_item_id]) newSeriesDone[s.sessao_item_id] = new Set()
+              if (s.concluida) newSeriesDone[s.sessao_item_id].add(s.numero_serie)
             }
+            for (const item of itens) {
+              const totalSeries = item.series ?? 0
+              if (totalSeries > 0 && newSeriesDone[item.id]?.size === totalSeries) {
+                newExercisesDone.add(item.id)
+              }
+            }
+            setSeriesDone(newSeriesDone)
+            setExercisesDone(newExercisesDone)
           }
-
-          setSeriesDone(newSeriesDone)
-          setExercisesDone(newExercisesDone)
-          // Done items start collapsed (not in expandedDoneItems)
+          } // close else (resume)
+        } else {
+          // Stale session from a previous day — close it and start fresh
+          await (supabase as any).from('workout_sessions')
+            .update({ status: 'incompleto', concluido_em: new Date().toISOString() })
+            .eq('id', existing.id)
         }
-      } else {
+      }
+
+      if (freshSession) {
         // Create new session
         const now = new Date().toISOString()
         const { data } = await (supabase as any)
@@ -331,8 +359,9 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
       allDone ? s.add(itemId) : s.delete(itemId)
       return s
     })
+    // Keep expanded when done so user can see all circles checked + "Exercício concluído"
     if (allDone) {
-      setExpandedDoneItems(prev => { const n = new Set(prev); n.delete(itemId); return n })
+      setExpandedDoneItems(prev => { const n = new Set(prev); n.add(itemId); return n })
     }
 
     persistSerie(itemId, serieNum, !wasDone, cargaRegistrada[itemId] ?? '')
@@ -355,9 +384,12 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
       }
     }
 
-    if (nowDone) {
-      setExpandedDoneItems(prev => { const n = new Set(prev); n.delete(itemId); return n })
-    }
+    // Keep expanded so user can see circles fill / unfill
+    setExpandedDoneItems(prev => {
+      const n = new Set(prev)
+      nowDone ? n.add(itemId) : n.delete(itemId)
+      return n
+    })
   }
 
   function handleCargaChange(itemId: string, value: string) {
@@ -376,23 +408,19 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
     if (!workoutSessionId || !pausedAtMs || !sessionStartTime) return
     const pausedSecs = Math.floor((pausedAtMs - sessionStartTime) / 1000)
     const newStartMs = Date.now() - pausedSecs * 1000
-    await (supabase as any).from('workout_sessions').update({
+    // Update iniciado_em so timer continues from where it paused
+    ;(supabase as any).from('workout_sessions').update({
       iniciado_em: new Date(newStartMs).toISOString(),
-      pausado_em: null,
-      elapsed_at_pause: null,
-    }).eq('id', workoutSessionId)
+    }).eq('id', workoutSessionId).then(() => {})
     setSessionStartTime(newStartMs)
     setPausedAtMs(null)
   }
 
   // ── Exit handlers ──────────────────────────────────────────────────────────
   async function sairEPausar() {
-    if (workoutSessionId) {
-      await (supabase as any).from('workout_sessions').update({
-        pausado_em: new Date().toISOString(),
-        elapsed_at_pause: sessionSecs,
-      }).eq('id', workoutSessionId)
-    }
+    // Navigate back without modifying the session — initSession() will
+    // restore the elapsed time from iniciado_em when they return.
+    // (Full pause requires the pausado_em migration to be applied.)
     setShowExitModal(false)
     router.back()
   }
@@ -417,46 +445,34 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
 
   async function finalizarTreino() {
     setCompleting(true); setActionError(null)
-    console.log('[finalizarTreino] iniciando — sessao.id:', sessao.id, 'workoutSessionId:', workoutSessionId)
     try {
-      console.log('[finalizarTreino] atualizando sessoes_treino...')
-      const { error } = await supabase.from('sessoes_treino').update({ status: 'realizado' } as any).eq('id', sessao.id)
-      console.log('[finalizarTreino] sessoes_treino resultado:', { error })
-      if (error) throw error
-      setIsRealizado(true)
+      if (!workoutSessionId) throw new Error('Sessão de treino não encontrada. Tente reabrir a página.')
       const incomplete = itens.filter(i => !exercisesDone.has(i.id))
-      if (workoutSessionId) {
-        console.log('[finalizarTreino] atualizando workout_sessions...')
-        const wsResult = await (supabase as any).from('workout_sessions').update({
-          concluido_em: new Date().toISOString(),
-          status: incomplete.length > 0 ? 'incompleto' : 'concluido',
-          motivo_incompleto: incomplete.length > 0
-            ? incomplete.map(i => `${i.exercicio?.nome ?? '?'}: ${incompleteReasons[i.id] || 'Não informado'}`).join('; ')
-            : null,
-          pausado_em: null,
-          elapsed_at_pause: null,
-        }).eq('id', workoutSessionId)
-        console.log('[finalizarTreino] workout_sessions resultado:', wsResult)
-        // set_executions already persisted incrementally; any remaining done items confirmed
-        for (const item of itens) {
-          if (!exercisesDone.has(item.id)) continue
-          const totalSeries = item.series ?? 0
-          if (totalSeries > 0) {
-            for (let s = 1; s <= totalSeries; s++) {
-              persistSerie(item.id, s, true, cargaRegistrada[item.id] ?? '')
-            }
+      const { error: wsError } = await (supabase as any).from('workout_sessions').update({
+        concluido_em: new Date().toISOString(),
+        status: incomplete.length > 0 ? 'incompleto' : 'concluido',
+        motivo_incompleto: incomplete.length > 0
+          ? incomplete.map(i => `${i.exercicio?.nome ?? '?'}: ${incompleteReasons[i.id] || 'Não informado'}`).join('; ')
+          : null,
+      }).eq('id', workoutSessionId)
+      if (wsError) throw new Error(`Erro ao salvar sessão: ${wsError.message}`)
+      // Confirm all completed series in the DB
+      for (const item of itens) {
+        if (!exercisesDone.has(item.id)) continue
+        const totalSeries = item.series ?? 0
+        if (totalSeries > 0) {
+          for (let s = 1; s <= totalSeries; s++) {
+            persistSerie(item.id, s, true, cargaRegistrada[item.id] ?? '')
           }
         }
-      } else {
-        console.warn('[finalizarTreino] workoutSessionId é null — sessão de treino não foi gravada no banco')
       }
-      // Freeze the timer so it stops ticking after completion
+      setIsRealizado(true)
       setFrozenSecs(sessionSecs)
-      setShowIncompleteDialog(false); setShowFeedbackForm(true)
+      setShowIncompleteDialog(false)
+      setShowFeedbackForm(true)
     } catch (err) {
-      console.error('[finalizarTreino] erro:', err)
       const msg = err instanceof Error ? err.message : String(err)
-      setActionError(`Não conseguimos salvar. ${msg}`)
+      setActionError(msg)
     }
     finally { setCompleting(false) }
   }
@@ -865,9 +881,15 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
 
         {/* Error */}
         {actionError && (
-          <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-xl px-4 py-3">
-            <span>{actionError}</span>
-            <button onClick={() => setActionError(null)} className="text-red-500 underline text-xs flex-shrink-0">Fechar</button>
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-4 space-y-3">
+            <p className="text-sm font-semibold">Não foi possível finalizar o treino</p>
+            <p className="text-xs text-red-600">{actionError}</p>
+            <div className="flex gap-2">
+              <button onClick={finalizarTreino} disabled={completing} className="flex-1 py-2 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700">
+                {completing ? 'Tentando...' : 'Tentar novamente'}
+              </button>
+              <button onClick={() => setActionError(null)} className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-sm">Fechar</button>
+            </div>
           </div>
         )}
 
@@ -904,8 +926,8 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
           )
         })()}
 
-        {/* Finalize button */}
-        {!isRealizado && !showIncompleteDialog && !showFeedbackForm && !showCelebration && (
+        {/* Finalize button — shown whenever there's an active session (even for re-doing) */}
+        {!showIncompleteDialog && !showFeedbackForm && !showCelebration && frozenSecs === null && (
           <button onClick={marcarRealizado} disabled={completing} className="btn-primary w-full">
             {completing ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
             {completing ? 'Salvando...' : 'Finalizar Treino'}

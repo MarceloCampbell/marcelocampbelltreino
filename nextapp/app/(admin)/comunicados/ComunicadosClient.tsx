@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plus, Megaphone, Loader2, Trash2, Clock, ExternalLink } from 'lucide-react'
+import { Plus, Megaphone, Loader2, Trash2, Clock, ExternalLink, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 type Comunicado = {
@@ -41,6 +41,7 @@ export function ComunicadosClient({ comunicados: initial }: { comunicados: Comun
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [notifying, setNotifying] = useState(false)
   const [agendarMode, setAgendarMode] = useState(false)
   const [form, setForm] = useState({
     titulo: '',
@@ -88,6 +89,26 @@ export function ComunicadosClient({ comunicados: initial }: { comunicados: Comun
     setSaving(false)
   }
 
+  async function notifyAll() {
+    setNotifying(true)
+    try {
+      const res = await fetch('/api/push/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: 'MC Treino atualizado! 🚀',
+          body: 'Novas melhorias disponíveis. Abra o app para conferir!',
+          url: '/',
+        }),
+      })
+      const data = await res.json()
+      alert(`Notificação enviada para ${data.sent} de ${data.total} dispositivos.`)
+    } catch {
+      alert('Erro ao enviar notificação.')
+    }
+    setNotifying(false)
+  }
+
   async function deleteComunicado(id: string) {
     setDeletingId(id)
     const { error } = await supabase.from('comunicados').delete().eq('id', id)
@@ -103,9 +124,20 @@ export function ComunicadosClient({ comunicados: initial }: { comunicados: Comun
         <p className="text-sm text-outline">
           {comunicados.length} comunicado{comunicados.length !== 1 ? 's' : ''} publicado{comunicados.length !== 1 ? 's' : ''}
         </p>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm px-4 py-2">
-          <Plus size={16} /> Novo Comunicado
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={notifyAll}
+            disabled={notifying}
+            className="btn-ghost text-sm px-4 py-2 border border-outline"
+            title="Envia push notification para todos os usuários com notificações ativas"
+          >
+            {notifying ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}
+            {notifying ? 'Enviando...' : 'Notificar Todos'}
+          </button>
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm px-4 py-2">
+            <Plus size={16} /> Novo Comunicado
+          </button>
+        </div>
       </div>
 
       {showForm && (
