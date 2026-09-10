@@ -54,6 +54,29 @@ export default async function RotinaDetailPage({ params }: { params: { id: strin
 
   const semanaAtual = ciclo.status === 'ativo' ? calcSemanaAtual(ciclo.data_inicio) : undefined
 
+  // Current week start (for scoped completion display — weekly reset)
+  const weekStart = (() => {
+    if (!ciclo.data_inicio || ciclo.status !== 'ativo') return null
+    const inicio = new Date(ciclo.data_inicio + 'T00:00')
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+    const days = Math.floor((hoje.getTime() - inicio.getTime()) / (1000 * 60 * 60 * 24))
+    const weekNum = Math.max(0, Math.floor(days / 7))
+    return new Date(inicio.getTime() + weekNum * 7 * 24 * 60 * 60 * 1000).toISOString()
+  })()
+
+  const sessaoIds = (sessoes ?? []).map(s => s.id)
+  let completedThisWeekIds: string[] = []
+  if (sessaoIds.length > 0 && weekStart) {
+    const { data: doneThisWeek } = await (supabase as any)
+      .from('workout_sessions')
+      .select('sessao_id')
+      .eq('aluno_id', aluno.id)
+      .in('status', ['concluido', 'incompleto'])
+      .gte('concluido_em', weekStart)
+      .in('sessao_id', sessaoIds)
+    completedThisWeekIds = (doneThisWeek ?? []).map((r: any) => r.sessao_id)
+  }
+
   function formatDate(d: string | null) {
     if (!d) return '–'
     return new Date(d + 'T00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -92,6 +115,7 @@ export default async function RotinaDetailPage({ params }: { params: { id: strin
             sessoes={sessoes as any}
             alunoId={aluno.id}
             semanaAtual={semanaAtual}
+            completedThisWeekIds={completedThisWeekIds}
           />
         )}
       </div>

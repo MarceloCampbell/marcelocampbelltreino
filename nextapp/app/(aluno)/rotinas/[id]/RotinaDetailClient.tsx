@@ -50,10 +50,10 @@ type Ciclo = {
   tema: string | null
 }
 
-function SessaoCard({ sessao, highlight }: { sessao: Sessao; highlight: boolean }) {
+function SessaoCard({ sessao, highlight, isCompletedThisWeek }: { sessao: Sessao; highlight: boolean; isCompletedThisWeek: boolean }) {
   const [isOpen, setIsOpen] = useState(highlight)
   const router = useRouter()
-  const isRealizado = sessao.status === 'realizado'
+  const isRealizado = isCompletedThisWeek
   const itens = [...(sessao.sessao_itens ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
 
   return (
@@ -127,11 +127,13 @@ export function RotinaDetailClient({
   ciclo,
   sessoes,
   alunoId,
+  completedThisWeekIds = [],
 }: {
   ciclo: Ciclo
   sessoes: Sessao[]
   alunoId: string
   semanaAtual?: number
+  completedThisWeekIds?: string[]
 }) {
   const supabase = createClient()
 
@@ -159,7 +161,7 @@ export function RotinaDetailClient({
             <span className="w-2 h-2 rounded-full bg-primary" />
             <h2 className="font-bold text-secondary text-sm uppercase tracking-wide">Treino de Hoje</h2>
           </div>
-          <SessaoCard sessao={treinoHoje} highlight />
+          <SessaoCard sessao={treinoHoje} highlight isCompletedThisWeek={completedThisWeekIds.includes(treinoHoje.id)} />
           {sessoes.length > 1 && (
             <div className="flex items-center gap-2 pt-2">
               <span className="w-2 h-2 rounded-full bg-outline-variant" />
@@ -171,7 +173,7 @@ export function RotinaDetailClient({
       {sessoes
         .filter(s => s.id !== treinoHoje?.id)
         .map(s => (
-          <SessaoCard key={s.id} sessao={s} highlight={false} />
+          <SessaoCard key={s.id} sessao={s} highlight={false} isCompletedThisWeek={completedThisWeekIds.includes(s.id)} />
         ))
       }
     </div>
