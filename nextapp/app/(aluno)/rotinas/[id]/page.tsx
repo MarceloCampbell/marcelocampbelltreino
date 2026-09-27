@@ -42,8 +42,7 @@ export default async function RotinaDetailPage({ params }: { params: { id: strin
       sessao_itens(
         *,
         exercicio:exercicios(
-          id, nome, grupo_muscular, video_url, instrucoes, exercicio_substituto_id,
-          substituto:exercicios!exercicio_substituto_id(id, nome, grupo_muscular, video_url)
+          id, nome, grupo_muscular, video_url, instrucoes, exercicio_substituto_id
         )
       )
     `)
