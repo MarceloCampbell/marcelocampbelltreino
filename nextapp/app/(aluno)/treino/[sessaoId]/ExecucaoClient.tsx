@@ -625,31 +625,37 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
     return (
       <div key={item.id} className={`p-4 ${isDone ? 'bg-green-50/40' : ''}`}>
 
-        {/* 1. Nome + Substituto inline */}
-        <div className="flex items-center gap-2 flex-wrap mb-3">
-          {showSub && <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wide">Substituto:</span>}
-          <p className="font-bold text-secondary text-lg leading-tight">
-            {showSub ? ex!.substituto!.nome : (ex?.nome ?? '–')}
-          </p>
-          {ex?.substituto && (
+        {/* 1. Substituto badge + toggle button (own row, above name) */}
+        {ex?.substituto && (
+          <div className="flex items-center gap-2 mb-2">
+            {showSub && (
+              <span className="text-[10px] text-orange-500 font-bold uppercase tracking-wide bg-orange-50 px-2 py-0.5 rounded-full">
+                Substituto
+              </span>
+            )}
             <button
               onClick={() => setSubstitutoAberto(substitutoAberto === item.id ? null : item.id)}
               className="flex items-center gap-1 text-xs text-orange-500 font-semibold hover:text-orange-700"
             >
               <RefreshCw size={11} />
-              {substitutoAberto === item.id ? 'Original' : 'Substituto'}
+              {substitutoAberto === item.id ? 'Ver Original' : 'Ver Substituto'}
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* 2. Vídeo full-width */}
+        {/* 2. Nome do exercício (original ou substituto) */}
+        <p className="font-bold text-secondary text-lg leading-tight mb-3">
+          {showSub ? ex!.substituto!.nome : (ex?.nome ?? '–')}
+        </p>
+
+        {/* 3. Vídeo do exercício ativo (substituto ou original) */}
         {videoEx?.video_url && (
           <div className="mb-3">
             <VideoThumb url={videoEx.video_url} nome={videoEx.nome} />
           </div>
         )}
 
-        {/* 3. Séries + bolinhas */}
+        {/* 4. Séries + bolinhas */}
         <div className="flex items-center gap-3 mb-3 flex-wrap">
           {(series || repeticoes) && (
             <p className="text-sm font-semibold text-secondary">
