@@ -278,6 +278,22 @@ export function ExecucaoClient({ alunoId, sessao, ciclo }: { alunoId: string; se
       }
 
       if (freshSession) {
+        // Load carga from the most recent completed session (previous week)
+        const { data: lastSession } = await (supabase as any)
+          .from('workout_sessions')
+          .select('carga_json')
+          .eq('aluno_id', alunoId)
+          .eq('sessao_id', sessao.id)
+          .in('status', ['concluido', 'incompleto'])
+          .not('carga_json', 'is', null)
+          .order('concluido_em', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (lastSession?.carga_json) {
+          setCargaRegistrada(lastSession.carga_json as Record<string, string>)
+        }
+
         // Create new session
         const now = new Date().toISOString()
         const { data } = await (supabase as any)
