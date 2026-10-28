@@ -2257,10 +2257,23 @@ ${s.sessao_itens.map((item, i) => `
                                             if (!window.confirm(`Alterar repetições para ${n} em todas as semanas. Continuar?`)) { setEditItemMetodo(''); return }
                                             setEditItemPeriod(prev => prev.map(p => ({ ...p, repeticoes: n })))
                                             setEditItemMetodo('')
+                                          } else if (m === 'periodizacao_12') {
+                                            const hasData = editItemPeriod.some(p => p.series || p.repeticoes)
+                                            if (hasData && !window.confirm('Periodização 12 vai substituir séries e repetições conforme o protocolo de 12 semanas. Intervalo e observações não serão alterados. Continuar?')) {
+                                              setEditItemMetodo(''); return
+                                            }
+                                            const last = MC_MODELO[MC_MODELO.length - 1]
+                                            setEditItemPeriod(prev => prev.map((p, idx) => {
+                                              const ref = MC_MODELO[idx] ?? last
+                                              return { ...p, series: ref.series, repeticoes: ref.repeticoes }
+                                            }))
                                           }
                                         }}
                                       >
                                         <option value="">— Nenhum —</option>
+                                        <optgroup label="Periodização">
+                                          <option value="periodizacao_12">Periodização 12 Semanas</option>
+                                        </optgroup>
                                         <optgroup label="Métodos Estruturais">
                                           <option value="progressao_carga">Progressão de Carga</option>
                                           <option value="cluster_set">Cluster Set</option>
@@ -2583,6 +2596,19 @@ ${s.sessao_itens.map((item, i) => `
                                                 metodo: '',
                                                 periodizacao: i.periodizacao.map(p => ({ ...p, repeticoes: n })),
                                               }))
+                                            } else if (m === 'periodizacao_12') {
+                                              const hasData = item.periodizacao.some(p => p.series || p.repeticoes)
+                                              if (hasData && !window.confirm('Periodização 12 vai substituir séries e repetições conforme o protocolo de 12 semanas. Intervalo e observações não serão alterados. Continuar?')) return
+                                              const last = MC_MODELO[MC_MODELO.length - 1]
+                                              setSessaoItens(prev => prev.map(i => i.key !== item.key ? i : {
+                                                ...i,
+                                                metodo: 'periodizacao_12',
+                                                metodo_params: {},
+                                                periodizacao: i.periodizacao.map((p, idx) => {
+                                                  const ref = MC_MODELO[idx] ?? last
+                                                  return { ...p, series: ref.series, repeticoes: ref.repeticoes }
+                                                }),
+                                              }))
                                             } else {
                                               const obs = techMethods.includes(m) ? applyMetodoTemplate(m, {}) : item.observacoes
                                               updateItemMetodo(item.key, m, {}, obs)
@@ -2590,6 +2616,9 @@ ${s.sessao_itens.map((item, i) => `
                                           }}
                                         >
                                           <option value="">— Nenhum —</option>
+                                          <optgroup label="Periodização">
+                                            <option value="periodizacao_12">Periodização 12 Semanas</option>
+                                          </optgroup>
                                           <optgroup label="Métodos Estruturais">
                                             <option value="progressao_carga">Progressão de Carga</option>
                                             <option value="cluster_set">Cluster Set</option>
