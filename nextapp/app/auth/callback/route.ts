@@ -24,14 +24,22 @@ export async function GET(request: NextRequest) {
   )
 
   const tokenHash = searchParams.get('token_hash')
-  const type = searchParams.get('type')
+  const type = searchParams.get('type') as 'signup' | 'invite' | 'magiclink' | 'email_change' | 'recovery' | null
 
-  if (tokenHash && type === 'recovery') {
-    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+  if (tokenHash && type) {
+    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type })
     if (error) {
       return NextResponse.redirect(`${origin}/auth/login?error=link-expirado`, { status: 303 })
     }
-    const response = NextResponse.redirect(`${origin}/auth/nova-senha`, { status: 303 })
+    const redirectMap: Record<string, string> = {
+      recovery: '/auth/nova-senha',
+      invite: '/auth/nova-senha',
+      signup: '/auth/login?confirmado=1',
+      magiclink: '/',
+      email_change: '/',
+    }
+    const dest = redirectMap[type] ?? next
+    const response = NextResponse.redirect(`${origin}${dest}`, { status: 303 })
     cookiesToSet.forEach(({ name, value, options }) =>
       response.cookies.set(name, value, { ...options, sameSite: 'lax', path: '/' })
     )

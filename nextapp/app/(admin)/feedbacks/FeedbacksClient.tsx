@@ -49,10 +49,19 @@ export function FeedbacksClient({ feedbacks: initial }: { feedbacks: Feedback[] 
     : feedbacks
 
   const urgenteCount = feedbacks.filter(f => isUrgente(f) && !f.respondido).length
+  const naoVistosNaLista = lista.filter(f => !f.visto_em)
 
   async function marcarVisto(id: string) {
     await supabase.from('workout_feedbacks').update({ visto_em: new Date().toISOString() }).eq('id', id)
     setFeedbacks(prev => prev.map(f => f.id === id ? { ...f, visto_em: new Date().toISOString() } : f))
+  }
+
+  async function marcarTodosVisto() {
+    const ids = naoVistosNaLista.map(f => f.id)
+    if (ids.length === 0) return
+    const agora = new Date().toISOString()
+    await supabase.from('workout_feedbacks').update({ visto_em: agora }).in('id', ids)
+    setFeedbacks(prev => prev.map(f => ids.includes(f.id) ? { ...f, visto_em: agora } : f))
   }
 
   async function enviarResposta(id: string) {
@@ -75,7 +84,7 @@ export function FeedbacksClient({ feedbacks: initial }: { feedbacks: Feedback[] 
   return (
     <div>
       {/* Sub-tabs */}
-      <div className="flex gap-2 mb-6">
+      <div className="flex items-center gap-2 mb-6 flex-wrap">
         <button
           onClick={() => setSubTab('todos')}
           className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${subTab === 'todos' ? 'bg-primary text-white' : 'bg-white border border-outline-variant text-secondary hover:bg-gray-50'}`}
@@ -94,6 +103,15 @@ export function FeedbacksClient({ feedbacks: initial }: { feedbacks: Feedback[] 
             </span>
           )}
         </button>
+        {naoVistosNaLista.length > 0 && (
+          <button
+            onClick={marcarTodosVisto}
+            className="ml-auto px-4 py-2 rounded-xl text-sm font-semibold border border-outline-variant bg-white text-secondary hover:bg-gray-50 transition-all flex items-center gap-1.5"
+          >
+            <CheckCircle2 size={14} />
+            Marcar todos como visto ({naoVistosNaLista.length})
+          </button>
+        )}
       </div>
 
       {lista.length === 0 && (
