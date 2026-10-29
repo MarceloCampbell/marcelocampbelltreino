@@ -23,6 +23,21 @@ export async function GET(request: NextRequest) {
     }
   )
 
+  const tokenHash = searchParams.get('token_hash')
+  const type = searchParams.get('type')
+
+  if (tokenHash && type === 'recovery') {
+    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'recovery' })
+    if (error) {
+      return NextResponse.redirect(`${origin}/auth/login?error=link-expirado`, { status: 303 })
+    }
+    const response = NextResponse.redirect(`${origin}/auth/nova-senha`, { status: 303 })
+    cookiesToSet.forEach(({ name, value, options }) =>
+      response.cookies.set(name, value, { ...options, sameSite: 'lax', path: '/' })
+    )
+    return response
+  }
+
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (error) {
